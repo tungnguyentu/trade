@@ -18,8 +18,10 @@ An advanced cryptocurrency trading bot for Binance Futures, implementing Scalpin
   - Max drawdown limits to protect capital
 
 - **Order Execution**:
-  - Automatic placement of market, limit, and stop orders
-  - Real-time monitoring of open positions
+  - Full integration with Binance Futures API
+  - Support for advanced order types: Market, Limit, Stop Market, Take Profit Market
+  - Support for reduce-only orders and custom trigger prices (mark price or contract price)
+  - Position leverage adjustment using the Binance Futures API
 
 - **Performance Analytics**:
   - Tracks win rate, profit factor, and Sharpe ratio
@@ -32,7 +34,7 @@ An advanced cryptocurrency trading bot for Binance Futures, implementing Scalpin
 
 - **Multiple Operation Modes**:
   - Backtesting with historical data
-  - Paper trading for risk-free testing
+  - Paper trading on Binance Futures Testnet
   - Live trading on Binance Futures
 
 ## Installation
@@ -57,7 +59,7 @@ An advanced cryptocurrency trading bot for Binance Futures, implementing Scalpin
 
 ## Configuration
 
-Edit the `.env` file to configure your trading parameters:
+Edit the `.env` file to configure your trading parameters. The bot supports a wide range of configuration options:
 
 ```
 # Binance API Credentials
@@ -83,7 +85,26 @@ TRADING_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
 
 # Timeframes to analyze (comma-separated)
 TIMEFRAMES=1m,5m,15m,1h,4h
+
+# Futures-specific Parameters
+DEFAULT_LEVERAGE=5
+MARGIN_TYPE=ISOLATED  # ISOLATED or CROSSED
 ```
+
+See the `.env.example` file for the complete list of configuration options.
+
+## Binance Futures API Integration
+
+This bot is built specifically for Binance Futures trading with support for:
+
+- USDⓈ-M Futures markets
+- Isolated and Cross margin modes
+- Adjustable leverage settings
+- Advanced order types: MARKET, LIMIT, STOP_MARKET, TAKE_PROFIT_MARKET
+- Reduce-only orders for position management
+- Mark price triggers for stop orders
+
+The bot uses the official [python-binance](https://github.com/binance/binance-connector-python) library for API interaction, ensuring compatibility with the latest Binance Futures API features.
 
 ## Usage
 
@@ -97,7 +118,7 @@ python -m app.main --mode backtest --backtest-start 2023-01-01 --backtest-end 20
 
 ### Paper Trading
 
-Test the bot with real-time data but without real money:
+Test the bot with real-time data on the Binance Futures Testnet:
 
 ```bash
 python -m app.main --mode paper
@@ -105,7 +126,7 @@ python -m app.main --mode paper
 
 ### Live Trading
 
-Run the bot in live trading mode with real money:
+Run the bot in live trading mode with real money on Binance Futures:
 
 ```bash
 python -m app.main --mode live
@@ -125,6 +146,9 @@ python -m app.main --interval 5
 
 # Set initial balance for backtesting
 python -m app.main --mode backtest --initial-balance 10000
+
+# Set leverage
+python -m app.main --leverage 3
 ```
 
 ## Running as a Service on Ubuntu Server
@@ -165,6 +189,10 @@ sudo systemctl start trading-bot
 ```bash
 sudo systemctl status trading-bot
 ```
+
+## API Rate Limits and Error Handling
+
+The bot includes built-in error handling for Binance API errors, including automatic retry logic for rate limit errors. It will handle API errors gracefully to prevent crashes during trading operations.
 
 ## Disclaimer
 
