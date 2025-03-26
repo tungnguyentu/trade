@@ -1,0 +1,40 @@
+2025-03-26 16:23:38.582 | INFO     | app.utils.binance_client:_initialize_client:31 - Connected to Binance API in backtest  # backtest, paper, live mode
+2025-03-26 16:23:38.934 | INFO     | app.utils.binance_client:_initialize_client:36 - Binance server time: {'serverTime': 1742981018819}
+2025-03-26 16:23:38.935 | INFO     | app.notification.telegram_notifier:_initialize_bot:33 - Telegram bot initialized
+2025-03-26 16:23:39.068 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:23:39.196 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:23:39.197 | INFO     | __main__:__init__:40 - Trading bot initialized in backtest mode for ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
+2025-03-26 16:25:27.797 | INFO     | app.utils.binance_client:_initialize_client:31 - Connected to Binance API in backtest  # backtest, paper, live mode
+2025-03-26 16:25:28.247 | INFO     | app.utils.binance_client:_initialize_client:36 - Binance server time: {'serverTime': 1742981128222}
+2025-03-26 16:25:28.248 | INFO     | app.notification.telegram_notifier:_initialize_bot:33 - Telegram bot initialized
+2025-03-26 16:25:28.572 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:25:28.896 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:25:28.897 | INFO     | __main__:__init__:40 - Trading bot initialized in backtest mode for ['BTCUSDT', 'ETHUSDT', 'SOLUSDT']
+2025-03-26 16:25:30.274 | INFO     | __main__:main:303 - Running backtest from 2025-01-01 to 2025-02-31
+2025-03-26 16:25:30.274 | INFO     | __main__:run_backtest:175 - Starting backtest for BTCUSDT
+2025-03-26 16:25:30.408 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:25:30.409 | INFO     | app.backtesting.backtest_engine:__init__:36 - Initialized backtesting for BTCUSDT from 2025-01-01 to 2025-02-31
+2025-03-26 16:25:30.409 | INFO     | app.backtesting.backtest_engine:run_backtest:57 - Starting backtest for BTCUSDT
+2025-03-26 16:25:32.556 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for BTCUSDT 1m: 2025-02-31
+2025-03-26 16:25:32.978 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for BTCUSDT 5m: 2025-02-31
+2025-03-26 16:25:33.210 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for BTCUSDT 15m: 2025-02-31
+2025-03-26 16:25:33.443 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for BTCUSDT 1h: 2025-02-31
+2025-03-26 16:25:33.664 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for BTCUSDT 4h: 2025-02-31
+2025-03-26 16:25:33.664 | ERROR    | app.backtesting.backtest_engine:run_backtest:62 - Failed to load data for backtesting BTCUSDT
+2025-03-26 16:25:33.665 | INFO     | __main__:run_backtest:175 - Starting backtest for ETHUSDT
+2025-03-26 16:25:33.859 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:25:33.859 | INFO     | app.backtesting.backtest_engine:__init__:36 - Initialized backtesting for ETHUSDT from 2025-01-01 to 2025-02-31
+2025-03-26 16:25:33.859 | INFO     | app.backtesting.backtest_engine:run_backtest:57 - Starting backtest for ETHUSDT
+2025-03-26 16:25:34.111 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for ETHUSDT 1m: 2025-02-31
+2025-03-26 16:25:34.360 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for ETHUSDT 5m: 2025-02-31
+2025-03-26 16:25:34.589 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for ETHUSDT 15m: 2025-02-31
+2025-03-26 16:25:34.884 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for ETHUSDT 1h: 2025-02-31
+2025-03-26 16:25:35.111 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for ETHUSDT 4h: 2025-02-31
+2025-03-26 16:25:35.111 | ERROR    | app.backtesting.backtest_engine:run_backtest:62 - Failed to load data for backtesting ETHUSDT
+2025-03-26 16:25:35.111 | INFO     | __main__:run_backtest:175 - Starting backtest for SOLUSDT
+2025-03-26 16:25:35.423 | ERROR    | app.utils.binance_client:get_account_balance:92 - Failed to fetch account balance: APIError(code=-2015): Invalid API-key, IP, or permissions for action.
+2025-03-26 16:25:35.424 | INFO     | app.backtesting.backtest_engine:__init__:36 - Initialized backtesting for SOLUSDT from 2025-01-01 to 2025-02-31
+2025-03-26 16:25:35.424 | INFO     | app.backtesting.backtest_engine:run_backtest:57 - Starting backtest for SOLUSDT
+2025-03-26 16:25:35.956 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for SOLUSDT 1m: 2025-02-31
+2025-03-26 16:25:36.386 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for SOLUSDT 5m: 2025-02-31
+2025-03-26 16:25:36.614 | ERROR    | app.utils.data_handler:fetch_ohlcv_data:60 - Error fetching OHLCV data for SOLUSDT 15m: 2025-02-31
