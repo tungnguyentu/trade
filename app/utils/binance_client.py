@@ -80,7 +80,7 @@ class BinanceClient:
     def get_account_balance(self, asset='USDT'):
         """Get account balance for a specific asset"""
         try:
-            balances = self._client.get_account()['balances']
+            balances = self._client.futures_account_balance()['balances']
             for balance in balances:
                 if balance['asset'] == asset:
                     return {
