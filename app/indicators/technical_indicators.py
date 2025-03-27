@@ -284,35 +284,77 @@ class TechnicalIndicators:
     def add_candlestick_patterns(df):
         """Add candlestick pattern recognition to dataframe"""
         try:
-            # Bullish patterns
-            df['bullish_engulfing'] = ta.candlestick.bullish_engulfing(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Create a copy to avoid SettingWithCopyWarning
+            df = df.copy()
             
-            df['hammer'] = ta.candlestick.hammer(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Initialize pattern columns with False
+            df['bullish_engulfing'] = False
+            df['hammer'] = False
+            df['morning_star'] = False
+            df['bearish_engulfing'] = False
+            df['shooting_star'] = False
+            df['evening_star'] = False
             
-            df['morning_star'] = ta.candlestick.morning_star(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Simple implementation of candlestick patterns
+            # Requires at least 3 bars of data
+            if len(df) < 3:
+                return df
+                
+            # Calculate body size and shadows
+            df['body_size'] = abs(df['close'] - df['open'])
+            df['upper_shadow'] = df['high'] - df[['open', 'close']].max(axis=1)
+            df['lower_shadow'] = df[['open', 'close']].min(axis=1) - df['low']
             
-            # Bearish patterns
-            df['bearish_engulfing'] = ta.candlestick.bearish_engulfing(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Bullish Engulfing
+            for i in range(1, len(df)):
+                # Current bar is bullish (close > open)
+                if df['close'].iloc[i] > df['open'].iloc[i]:
+                    # Previous bar was bearish (close < open)
+                    if df['close'].iloc[i-1] < df['open'].iloc[i-1]:
+                        # Current bar's body completely engulfs previous bar's body
+                        if (df['open'].iloc[i] <= df['close'].iloc[i-1] and 
+                            df['close'].iloc[i] >= df['open'].iloc[i-1]):
+                            df.loc[df.index[i], 'bullish_engulfing'] = True
             
-            df['shooting_star'] = ta.candlestick.shooting_star(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Bearish Engulfing
+            for i in range(1, len(df)):
+                # Current bar is bearish (close < open)
+                if df['close'].iloc[i] < df['open'].iloc[i]:
+                    # Previous bar was bullish (close > open)
+                    if df['close'].iloc[i-1] > df['open'].iloc[i-1]:
+                        # Current bar's body completely engulfs previous bar's body
+                        if (df['open'].iloc[i] >= df['close'].iloc[i-1] and 
+                            df['close'].iloc[i] <= df['open'].iloc[i-1]):
+                            df.loc[df.index[i], 'bearish_engulfing'] = True
             
-            df['evening_star'] = ta.candlestick.evening_star(
-                open=df['open'], high=df['high'], low=df['low'], close=df['close']
-            )
+            # Hammer (bullish reversal pattern)
+            for i in range(len(df)):
+                body_size = df['body_size'].iloc[i]
+                if body_size > 0:  # Avoid division by zero
+                    # Lower shadow should be at least twice the body size
+                    if (df['lower_shadow'].iloc[i] >= 2 * body_size and 
+                        df['upper_shadow'].iloc[i] <= 0.1 * body_size):
+                        df.loc[df.index[i], 'hammer'] = True
+            
+            # Shooting Star (bearish reversal pattern)
+            for i in range(len(df)):
+                body_size = df['body_size'].iloc[i]
+                if body_size > 0:  # Avoid division by zero
+                    # Upper shadow should be at least twice the body size
+                    if (df['upper_shadow'].iloc[i] >= 2 * body_size and 
+                        df['lower_shadow'].iloc[i] <= 0.1 * body_size):
+                        df.loc[df.index[i], 'shooting_star'] = True
+            
+            # Drop temporary columns
+            df = df.drop(['body_size', 'upper_shadow', 'lower_shadow'], axis=1)
             
             return df
         except Exception as e:
             logger.error(f"Error calculating candlestick patterns: {e}")
+            # Initialize pattern columns with False on error
+            for pattern in ['bullish_engulfing', 'hammer', 'morning_star', 
+                          'bearish_engulfing', 'shooting_star', 'evening_star']:
+                df[pattern] = False
             return df
     
     @staticmethod

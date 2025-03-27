@@ -78,16 +78,23 @@ class BinanceClient:
             return None
     
     def get_account_balance(self, asset='USDT'):
-        """Get account balance for a specific asset"""
+        """Get account balance for a specific asset in Binance Futures"""
         try:
-            balances = self._client.futures_account_balance()['balances']
+            balances = self._client.futures_account_balance()
+            
             for balance in balances:
                 if balance['asset'] == asset:
                     return {
-                        'free': float(balance['free']),
-                        'locked': float(balance['locked'])
+                        'free': float(balance['availableBalance']),
+                        'locked': float(balance['balance']) - float(balance['availableBalance']),
+                        'total': float(balance['balance'])
                     }
-            return {'free': 0.0, 'locked': 0.0}
+            
+            logger.warning(f"Asset {asset} not found in account balances")
+            return {'free': 0.0, 'locked': 0.0, 'total': 0.0}
         except BinanceAPIException as e:
             logger.error(f"Failed to fetch account balance: {e}")
-            return {'free': 0.0, 'locked': 0.0} 
+            return {'free': 0.0, 'locked': 0.0, 'total': 0.0}
+        except Exception as e:
+            logger.error(f"Unexpected error fetching account balance: {e}")
+            return {'free': 0.0, 'locked': 0.0, 'total': 0.0} 
