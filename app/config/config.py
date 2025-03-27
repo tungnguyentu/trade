@@ -18,6 +18,14 @@ RISK_PER_TRADE = float(os.getenv('RISK_PER_TRADE', '0.01'))  # 1% of account per
 MAX_DRAWDOWN = float(os.getenv('MAX_DRAWDOWN', '0.20'))  # 20% max drawdown
 BASE_ORDER_SIZE = float(os.getenv('BASE_ORDER_SIZE', '100'))  # Base order size in USDT
 
+# Risk Management Parameters
+MAX_POSITION_SIZE = float(os.getenv('MAX_POSITION_SIZE', '1000'))  # Maximum position size in USDT
+MIN_POSITION_SIZE = float(os.getenv('MIN_POSITION_SIZE', '10'))    # Minimum position size in USDT
+MAX_DAILY_LOSS = float(os.getenv('MAX_DAILY_LOSS', '200'))         # Maximum daily loss in USDT
+MAX_DAILY_TRADES = int(os.getenv('MAX_DAILY_TRADES', '10'))        # Maximum number of trades per day
+STOP_LOSS_ATR_MULTIPLIER = float(os.getenv('STOP_LOSS_ATR_MULTIPLIER', '2.0'))
+TAKE_PROFIT_RISK_REWARD = float(os.getenv('TAKE_PROFIT_RISK_REWARD', '2.0'))
+
 # Strategy Parameters
 SCALPING_ENABLED = os.getenv('SCALPING_ENABLED', 'True').lower() == 'true'
 SWING_TRADING_ENABLED = os.getenv('SWING_TRADING_ENABLED', 'True').lower() == 'true'
@@ -54,10 +62,6 @@ MACD_FAST = int(os.getenv('MACD_FAST', '12'))
 MACD_SLOW = int(os.getenv('MACD_SLOW', '26'))
 MACD_SIGNAL = int(os.getenv('MACD_SIGNAL', '9'))
 ATR_PERIOD = int(os.getenv('ATR_PERIOD', '14'))
-
-# Risk Management Parameters
-STOP_LOSS_ATR_MULTIPLIER = float(os.getenv('STOP_LOSS_ATR_MULTIPLIER', '2.0'))
-TAKE_PROFIT_RISK_REWARD = float(os.getenv('TAKE_PROFIT_RISK_REWARD', '2.0'))
 
 # Strategy-specific Parameters
 # Scalping Strategy
