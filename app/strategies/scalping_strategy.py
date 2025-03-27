@@ -1,258 +1,222 @@
 import pandas as pd
 import numpy as np
 from app.strategies.base_strategy import BaseStrategy
-from app.config.config import SCALPING_PROFIT_TARGET, SCALPING_STOP_LOSS
+from app.indicators.technical_indicators import TechnicalIndicators
+from app.config.config import (
+    SCALPING_PROFIT_TARGET,
+    SCALPING_STOP_LOSS,
+    SCALPING_RSI_OVERBOUGHT,
+    SCALPING_RSI_OVERSOLD
+)
 from app.utils.logger import get_logger
 
 logger = get_logger()
 
 class ScalpingStrategy(BaseStrategy):
+    """
+    Scalping strategy implementation for short-term trades
+    
+    Uses a combination of RSI, Bollinger Bands, and short-term EMAs
+    to identify short-term trading opportunities.
+    """
+    
     def __init__(self, symbol, timeframes=None):
-        if timeframes is None:
-            # Scalping primarily uses shorter timeframes
-            timeframes = ['1m', '5m', '15m']
-            
-        super().__init__(symbol, timeframes)
-        self.name = "Scalping"
+        """
+        Initialize the scalping strategy
+        
+        Args:
+            symbol (str): Trading symbol (e.g., 'BTCUSDT')
+            timeframes (list, optional): List of timeframes to analyze
+        """
+        # Scalping focuses on shorter timeframes
+        self.default_timeframes = ['1m', '5m', '15m']
+        super().__init__(symbol, timeframes or self.default_timeframes)
         self.profit_target = SCALPING_PROFIT_TARGET
         self.stop_loss_pct = SCALPING_STOP_LOSS
+        self.primary_timeframe = '5m'  # Primary timeframe for signals
     
-    def generate_signals(self):
+    def generate_signal(self):
         """
-        Generate scalping signals based on RSI, Bollinger Bands, and short-term MAs
+        Generate trading signal based on scalping strategy
         
         Returns:
-            dict: Signal information with entry/exit points
+            dict: Signal data with action, direction, entry price, etc.
         """
-        signals = []
+        if not self.data or self.primary_timeframe not in self.data:
+            logger.warning(f"No data available for {self.primary_timeframe} timeframe")
+            return {
+                "action": "none",
+                "timestamp": pd.Timestamp.now()
+            }
         
-        try:
-            # Ensure we have data for the primary timeframe (1m for scalping)
-            if '1m' not in self.data or self.data['1m'].empty:
-                logger.warning(f"No 1m data available for {self.symbol}")
-                return signals
-                
-            # Get the latest data for primary timeframe
-            df_1m = self.data['1m'].copy()
+        # Get the latest data for primary timeframe
+        df = self.data[self.primary_timeframe]
+        if len(df) < 10:  # Require at least 10 candles for analysis
+            return {"action": "none"}
             
-            # Look for scalping opportunities
-            for i in range(1, len(df_1m)):
-                # Skip if we already have signals for this candle
-                if i < len(df_1m) - 1:
-                    continue
-                    
-                # Price data
-                close = df_1m['close'].iloc[i]
-                prev_close = df_1m['close'].iloc[i-1]
-                
-                # Indicator values
-                rsi = df_1m['rsi'].iloc[i]
-                bb_lower = df_1m['bb_lower'].iloc[i]
-                bb_upper = df_1m['bb_upper'].iloc[i]
-                bb_pct = df_1m['bb_pct'].iloc[i]
-                
-                # Check if price is near Bollinger Bands
-                near_lower_band = close <= bb_lower * 1.005  # Within 0.5% of lower band
-                near_upper_band = close >= bb_upper * 0.995  # Within 0.5% of upper band
-                
-                # Check for RSI conditions
-                rsi_oversold = rsi is not None and rsi <= 30
-                rsi_overbought = rsi is not None and rsi >= 70
-                
-                # Candlestick pattern signals
-                bullish_pattern = df_1m['bullish_engulfing'].iloc[i] or df_1m['hammer'].iloc[i]
-                bearish_pattern = df_1m['bearish_engulfing'].iloc[i] or df_1m['shooting_star'].iloc[i]
-                
-                # Check for moving average crossovers
-                ema12 = df_1m['ema_12'].iloc[i]
-                ema26 = df_1m['ema_26'].iloc[i]
-                prev_ema12 = df_1m['ema_12'].iloc[i-1]
-                prev_ema26 = df_1m['ema_26'].iloc[i-1]
-                
-                ema_bullish_cross = prev_ema12 <= prev_ema26 and ema12 > ema26
-                ema_bearish_cross = prev_ema12 >= prev_ema26 and ema12 < ema26
-                
-                # Check for volume confirmation
-                volume = df_1m['volume'].iloc[i]
-                avg_volume = df_1m['volume'].rolling(window=20).mean().iloc[i]
-                volume_increase = volume > avg_volume * 1.5  # 50% above average
-                
-                # Long signal conditions (multiple conditions must align)
-                if (
-                    (near_lower_band and rsi_oversold) or
-                    (bullish_pattern and rsi < 40) or
-                    (ema_bullish_cross and volume_increase)
-                ):
-                    timestamp = df_1m.index[i]
-                    signal = {
-                        'timestamp': timestamp,
-                        'type': 'long',
-                        'price': close,
-                        'timeframe': '1m',
-                        'strength': self._calculate_signal_strength(
-                            near_lower_band, rsi_oversold, bullish_pattern, 
-                            ema_bullish_cross, volume_increase
-                        ),
-                        'indicators': {
-                            'rsi': rsi,
-                            'bb_lower': bb_lower,
-                            'bb_pct': bb_pct,
-                            'ema12': ema12,
-                            'ema26': ema26,
-                            'volume': volume,
-                            'avg_volume': avg_volume
-                        }
-                    }
-                    signals.append(signal)
-                
-                # Short signal conditions (multiple conditions must align)
-                elif (
-                    (near_upper_band and rsi_overbought) or
-                    (bearish_pattern and rsi > 60) or
-                    (ema_bearish_cross and volume_increase)
-                ):
-                    timestamp = df_1m.index[i]
-                    signal = {
-                        'timestamp': timestamp,
-                        'type': 'short',
-                        'price': close,
-                        'timeframe': '1m',
-                        'strength': self._calculate_signal_strength(
-                            near_upper_band, rsi_overbought, bearish_pattern, 
-                            ema_bearish_cross, volume_increase
-                        ),
-                        'indicators': {
-                            'rsi': rsi,
-                            'bb_upper': bb_upper,
-                            'bb_pct': bb_pct,
-                            'ema12': ema12,
-                            'ema26': ema26,
-                            'volume': volume,
-                            'avg_volume': avg_volume
-                        }
-                    }
-                    signals.append(signal)
+        # Get the most recent data points
+        current = df.iloc[-1]
+        previous = df.iloc[-2]
+        
+        # Check for entry conditions
+        signal = self._check_entry_conditions(df, current, previous)
+        
+        if signal["action"] == "entry":
+            # Calculate stop loss and take profit levels
+            entry_price = float(current['close'])
+            direction = signal["direction"]
             
-            return signals
+            if 'atr' in current and not pd.isna(current['atr']):
+                atr_value = current['atr']
+                stop_loss = self.get_stop_loss_price(entry_price, direction, atr_value)
+            else:
+                stop_loss = self.get_stop_loss_price(entry_price, direction)
+                
+            take_profit = self.get_take_profit_price(entry_price, direction)
             
-        except Exception as e:
-            logger.error(f"Error generating scalping signals for {self.symbol}: {e}")
-            return []
+            # Add price levels to signal
+            signal.update({
+                "entry_price": entry_price,
+                "stop_loss_price": stop_loss,
+                "take_profit_price": take_profit,
+                "risk_per_trade": self.stop_loss_pct,
+                "strategy_name": "Scalping"
+            })
+            
+        return signal
     
-    def _calculate_signal_strength(self, near_band, rsi_extreme, pattern, ema_cross, volume_increase):
-        """Calculate signal strength based on how many conditions align"""
-        strength = 0
-        if near_band:
-            strength += 1
-        if rsi_extreme:
-            strength += 1
-        if pattern:
-            strength += 1
-        if ema_cross:
-            strength += 1
-        if volume_increase:
-            strength += 1
+    def _check_entry_conditions(self, df, current, previous):
+        """Check entry conditions for scalping strategy"""
+        # Initialize with no action
+        signal = {
+            "action": "none",
+            "timestamp": current.name if hasattr(current, 'name') else pd.Timestamp.now(),
+            "timeframe": self.primary_timeframe
+        }
+        
+        # Check for oversold conditions (long entry)
+        if (
+            # RSI crossed below oversold threshold and now moving up
+            previous['rsi'] < SCALPING_RSI_OVERSOLD and current['rsi'] > previous['rsi'] and
+            # Price is below lower Bollinger Band
+            current['close'] < current['bollinger_lower'] and
+            # Volume is increasing
+            current['volume'] > previous['volume']
+        ):
+            # Long entry signal
+            signal.update({
+                "action": "entry",
+                "direction": "long",
+                "indicators": {
+                    "rsi": current['rsi'],
+                    "bb_lower": current['bollinger_lower'],
+                    "price": current['close']
+                },
+                "reasoning": f"Oversold conditions with RSI at {current['rsi']:.2f} and price below lower Bollinger Band"
+            })
             
-        # Return normalized strength (0-1)
-        return strength / 5.0
+        # Check for overbought conditions (short entry)
+        elif (
+            # RSI crossed above overbought threshold and now moving down
+            previous['rsi'] > SCALPING_RSI_OVERBOUGHT and current['rsi'] < previous['rsi'] and
+            # Price is above upper Bollinger Band
+            current['close'] > current['bollinger_upper'] and
+            # Volume is increasing
+            current['volume'] > previous['volume']
+        ):
+            # Short entry signal
+            signal.update({
+                "action": "entry",
+                "direction": "short",
+                "indicators": {
+                    "rsi": current['rsi'],
+                    "bb_upper": current['bollinger_upper'],
+                    "price": current['close']
+                },
+                "reasoning": f"Overbought conditions with RSI at {current['rsi']:.2f} and price above upper Bollinger Band"
+            })
+            
+        return signal
     
     def should_enter_trade(self):
         """
-        Check if we should enter a scalping trade
+        Determine if a new trade should be entered
         
         Returns:
-            tuple: (bool, dict) - (should_enter, signal_data)
+            tuple: (should_enter, signal_data)
         """
-        signals = self.generate_signals()
-        
-        if not signals:
-            return False, None
-            
-        # Get the latest signal
-        latest_signal = signals[-1]
-        
-        # Check for signal strength and confirmation
-        if latest_signal['strength'] >= 0.6:  # At least 3 out of 5 conditions
-            # Check for confirmation on higher timeframe if available
-            if '5m' in self.data and not self.data['5m'].empty:
-                df_5m = self.data['5m']
-                latest_5m = df_5m.iloc[-1]
-                
-                if latest_signal['type'] == 'long':
-                    # Confirm long signal with 5m data
-                    if latest_5m['rsi'] < 50 and latest_5m['close'] < latest_5m['bb_middle']:
-                        logger.info(f"Scalping long signal confirmed on 5m timeframe for {self.symbol}")
-                        latest_signal['confirmed'] = True
-                        return True, latest_signal
-                        
-                elif latest_signal['type'] == 'short':
-                    # Confirm short signal with 5m data
-                    if latest_5m['rsi'] > 50 and latest_5m['close'] > latest_5m['bb_middle']:
-                        logger.info(f"Scalping short signal confirmed on 5m timeframe for {self.symbol}")
-                        latest_signal['confirmed'] = True
-                        return True, latest_signal
-            else:
-                # If higher timeframe not available, use signal strength as confirmation
-                if latest_signal['strength'] >= 0.8:  # At least 4 out of 5 conditions
-                    logger.info(f"Strong scalping signal (no 5m confirmation) for {self.symbol}")
-                    latest_signal['confirmed'] = True
-                    return True, latest_signal
-        
-        return False, None
+        signal = self.generate_signal()
+        should_enter = signal["action"] == "entry"
+        return should_enter, signal
     
-    def should_exit_trade(self, entry_price, current_position):
+    def should_exit_trade(self, position_data):
         """
-        Check if we should exit a scalping trade
+        Determine if an existing trade should be exited
         
         Args:
-            entry_price (float): Entry price
-            current_position (dict): Current position information
+            position_data (dict): Current position data
             
         Returns:
-            tuple: (bool, str) - (should_exit, reason)
+            tuple: (should_exit, exit_reason)
         """
-        if not self.data or '1m' not in self.data or self.data['1m'].empty:
+        if not self.data or self.primary_timeframe not in self.data:
             return False, "No data available"
             
-        # Get latest price
-        latest_data = self.data['1m'].iloc[-1]
-        current_price = latest_data['close']
+        df = self.data[self.primary_timeframe]
+        if len(df) < 2:
+            return False, "Insufficient data"
+            
+        current = df.iloc[-1]
+        previous = df.iloc[-2]
         
-        # Calculate P&L percentage
-        is_long = current_position['type'] == 'long'
-        if is_long:
-            pnl_pct = (current_price - entry_price) / entry_price
+        # Extract position details
+        entry_price = position_data.get("entry_price", 0)
+        direction = "long" if position_data.get("side") == "BUY" else "short"
+        entry_time = position_data.get("entry_time")
+        
+        # Calculate current profit/loss
+        current_price = current['close']
+        if direction == "long":
+            profit_pct = (current_price - entry_price) / entry_price
         else:
-            pnl_pct = (entry_price - current_price) / entry_price
-            
-        # Check for take profit
-        if pnl_pct >= self.profit_target:
-            return True, f"Take profit reached: {pnl_pct:.2%} >= {self.profit_target:.2%}"
-            
-        # Check for stop loss
-        if pnl_pct <= -self.stop_loss_pct:
-            return True, f"Stop loss triggered: {pnl_pct:.2%} <= -{self.stop_loss_pct:.2%}"
-            
-        # Check for reversal signals
-        rsi = latest_data['rsi']
+            profit_pct = (entry_price - current_price) / entry_price
         
-        if is_long and rsi > 70:
-            return True, f"RSI overbought: {rsi:.2f} > 70"
-            
-        if not is_long and rsi < 30:
-            return True, f"RSI oversold: {rsi:.2f} < 30"
-            
-        # Check for EMA crossover (exit signal)
-        ema12 = latest_data['ema_12']
-        ema26 = latest_data['ema_26']
+        # Check exit conditions
         
-        if is_long and ema12 < ema26:
-            return True, f"EMA bearish crossover: {ema12:.2f} < {ema26:.2f}"
+        # 1. Check for profit target hit
+        if profit_pct >= self.profit_target:
+            return True, f"Profit target reached: {profit_pct:.2%}"
             
-        if not is_long and ema12 > ema26:
-            return True, f"EMA bullish crossover: {ema12:.2f} > {ema26:.2f}"
+        # 2. Check for RSI reversal
+        if direction == "long" and current['rsi'] > 70 and previous['rsi'] > current['rsi']:
+            return True, f"RSI overbought and turning down: {current['rsi']:.2f}"
             
-        return False, "No exit signal"
+        if direction == "short" and current['rsi'] < 30 and previous['rsi'] < current['rsi']:
+            return True, f"RSI oversold and turning up: {current['rsi']:.2f}"
+            
+        # 3. Check for Bollinger Band mean reversion
+        if direction == "long" and current['close'] > current['bollinger_upper']:
+            return True, "Price above upper Bollinger Band"
+            
+        if direction == "short" and current['close'] < current['bollinger_lower']:
+            return True, "Price below lower Bollinger Band"
+            
+        # No exit signal
+        return False, "No exit conditions met"
+    
+    def get_stop_loss_price(self, entry_price, direction, atr_value=None):
+        """Calculate stop loss price based on strategy parameters"""
+        if atr_value:
+            return entry_price * (1 - self.stop_loss_pct)
+        else:
+            return self.calculate_stop_loss(entry_price, direction)
+    
+    def get_take_profit_price(self, entry_price, direction):
+        """Calculate take profit price based on strategy parameters"""
+        if direction == "long":
+            return entry_price * (1 + self.profit_target)
+        else:
+            return entry_price * (1 - self.profit_target)
     
     def calculate_stop_loss(self, entry_price, is_long=True):
         """Calculate stop loss price for scalping strategy"""

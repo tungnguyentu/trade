@@ -1,14 +1,16 @@
+import time
+from datetime import datetime
 from binance.client import Client
 from binance.enums import (
     ORDER_TYPE_MARKET, 
     ORDER_TYPE_LIMIT, 
-    ORDER_TYPE_STOP_MARKET, 
-    ORDER_TYPE_TAKE_PROFIT_MARKET,
+    ORDER_TYPE_STOP_LOSS,
+    ORDER_TYPE_STOP_LOSS_LIMIT,
+    ORDER_TYPE_TAKE_PROFIT,
+    ORDER_TYPE_TAKE_PROFIT_LIMIT,
     TIME_IN_FORCE_GTC
 )
 from binance.exceptions import BinanceAPIException
-from datetime import datetime
-import time
 
 from app.models.binance_client import BinanceClient
 from app.notification.telegram_notifier import TelegramNotifier
@@ -33,7 +35,7 @@ class OrderManager:
         Args:
             symbol (str): Trading pair symbol
             side (str): "BUY" or "SELL"
-            order_type (str): Order type (MARKET, LIMIT, STOP_MARKET, TAKE_PROFIT_MARKET)
+            order_type (str): Order type (MARKET, LIMIT, STOP_LOSS, TAKE_PROFIT, etc.)
             quantity (float): Order quantity
             price (float, optional): Order price, required for LIMIT orders
             stop_price (float, optional): Stop price, required for stop orders
@@ -53,12 +55,16 @@ class OrderManager:
             "quantity": quantity
         }
         
-        if price and order_type == ORDER_TYPE_LIMIT:
+        if price and (order_type == ORDER_TYPE_LIMIT or 
+                     order_type == ORDER_TYPE_STOP_LOSS_LIMIT or 
+                     order_type == ORDER_TYPE_TAKE_PROFIT_LIMIT):
             order_params["price"] = price
             
-        if stop_price and (order_type == ORDER_TYPE_STOP_MARKET or order_type == ORDER_TYPE_TAKE_PROFIT_MARKET):
+        if stop_price and (order_type == ORDER_TYPE_STOP_LOSS or 
+                         order_type == ORDER_TYPE_STOP_LOSS_LIMIT or 
+                         order_type == ORDER_TYPE_TAKE_PROFIT or 
+                         order_type == ORDER_TYPE_TAKE_PROFIT_LIMIT):
             order_params["stopPrice"] = stop_price
-            order_params["workingType"] = working_type
             
         if reduce_only:
             order_params["reduceOnly"] = "true"
@@ -74,9 +80,13 @@ class OrderManager:
                 elif order_type == ORDER_TYPE_LIMIT:
                     order_params["timeInForce"] = TIME_IN_FORCE_GTC
                     response = self.binance_client.futures_create_order(**order_params)
-                elif order_type == ORDER_TYPE_STOP_MARKET:
+                elif order_type == ORDER_TYPE_STOP_LOSS or order_type == ORDER_TYPE_STOP_LOSS_LIMIT:
+                    if "timeInForce" not in order_params and order_type == ORDER_TYPE_STOP_LOSS_LIMIT:
+                        order_params["timeInForce"] = TIME_IN_FORCE_GTC
                     response = self.binance_client.futures_create_order(**order_params)
-                elif order_type == ORDER_TYPE_TAKE_PROFIT_MARKET:
+                elif order_type == ORDER_TYPE_TAKE_PROFIT or order_type == ORDER_TYPE_TAKE_PROFIT_LIMIT:
+                    if "timeInForce" not in order_params and order_type == ORDER_TYPE_TAKE_PROFIT_LIMIT:
+                        order_params["timeInForce"] = TIME_IN_FORCE_GTC
                     response = self.binance_client.futures_create_order(**order_params)
                 else:
                     raise ValueError(f"Unsupported order type: {order_type}")
@@ -101,8 +111,11 @@ class OrderManager:
         Returns a mock response that mimics Binance's response structure
         """
         # Get the current market price as execution price for market orders
-        current_price = self.binance_client.futures_mark_price(symbol=symbol)["markPrice"]
-        current_price = float(current_price)
+        try:
+            current_price = self.binance_client.get_current_price(symbol)
+        except Exception as e:
+            logger.warning(f"Error getting current price: {e}. Using fallback price of 20000")
+            current_price = 20000  # Fallback price for testing
         
         # For limit orders, use the specified price
         if order_type == ORDER_TYPE_LIMIT and price:
@@ -177,7 +190,7 @@ class OrderManager:
                     self.execute_order(
                         symbol=symbol,
                         side=sl_side,
-                        order_type=ORDER_TYPE_STOP_MARKET,
+                        order_type=ORDER_TYPE_STOP_LOSS,
                         quantity=position_size,
                         stop_price=signal_data["stop_loss_price"],
                         reduce_only=True
@@ -188,7 +201,7 @@ class OrderManager:
                     self.execute_order(
                         symbol=symbol,
                         side=tp_side,
-                        order_type=ORDER_TYPE_TAKE_PROFIT_MARKET,
+                        order_type=ORDER_TYPE_TAKE_PROFIT,
                         quantity=position_size,
                         stop_price=signal_data["take_profit_price"],
                         reduce_only=True

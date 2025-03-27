@@ -8,147 +8,176 @@ from app.utils.logger import get_logger
 logger = get_logger()
 
 class StrategySelector:
-    def __init__(self, symbol, timeframes=None):
-        self.symbol = symbol
-        self.timeframes = timeframes or ['1m', '5m', '15m', '1h', '4h', '1d']
-        
-        # Initialize strategies
-        self.scalping_strategy = ScalpingStrategy(symbol) if SCALPING_ENABLED else None
-        self.swing_strategy = SwingStrategy(symbol) if SWING_TRADING_ENABLED else None
-        
-        self.market_state = None
+    """
+    Class for selecting the best strategy based on market conditions
+    """
     
+    def __init__(self, symbol, timeframes):
+        """
+        Initialize strategy selector
+        
+        Args:
+            symbol (str): Trading symbol (e.g., 'BTCUSDT')
+            timeframes (list): List of timeframes to analyze
+        """
+        self.symbol = symbol
+        self.timeframes = timeframes
+        
+        # Initialize strategies based on config
+        self.strategies = {}
+        
+        # Only initialize enabled strategies
+        if SCALPING_ENABLED:
+            self.strategies['scalping'] = ScalpingStrategy(symbol, timeframes)
+            
+        if SWING_TRADING_ENABLED:
+            # For now, return a placeholder until SwingStrategy is implemented
+            self.strategies['swing'] = None
+        
+        self.current_market_state = "unknown"
+        
     def prepare_strategies(self, data_dict):
         """
         Prepare data for all active strategies
         
         Args:
-            data_dict (dict): Dictionary with timeframe as key and DataFrame as value
+            data_dict (dict): Dictionary of DataFrames by timeframe
             
         Returns:
-            dict: Dictionary with prepared data for each strategy
+            dict: Dictionary of prepared data by strategy
         """
         prepared_data = {}
         
-        if self.scalping_strategy:
-            prepared_data['scalping'] = self.scalping_strategy.prepare_data(data_dict)
-            
-        if self.swing_strategy:
-            prepared_data['swing'] = self.swing_strategy.prepare_data(data_dict)
-            
-        # Analyze market state for strategy selection
+        # Analyze market state first
         self._analyze_market_state(data_dict)
-            
+        
+        # Prepare data for each active strategy
+        for strategy_name, strategy in self.strategies.items():
+            if strategy is not None:
+                prepared_data[strategy_name] = strategy.prepare_data(data_dict)
+                
         return prepared_data
     
     def _analyze_market_state(self, data_dict):
         """
-        Analyze market state to determine which strategy to use
+        Analyze market state to determine the best strategy
+        
+        Looks at volatility (ATR) and directional movement to determine
+        if the market is in a state that favors scalping or swing trading.
         
         Args:
-            data_dict (dict): Dictionary with timeframe as key and DataFrame as value
+            data_dict (dict): Dictionary of DataFrames by timeframe
+            
+        Returns:
+            str: 'scalping', 'swing', or 'mixed'
         """
+        # Default to mixed if we can't determine
+        self.current_market_state = "mixed"
+        
         try:
-            # Default to mixed state
-            self.market_state = "mixed"
-            
-            # Analyze market volatility and trend to determine optimal strategy
-            if '1h' not in data_dict or data_dict['1h'].empty:
-                logger.warning(f"No 1h data available for {self.symbol}, using default market state")
-                return
+            # Use 1h timeframe for market state analysis if available
+            if '1h' in data_dict and not data_dict['1h'].empty:
+                df = data_dict['1h']
                 
-            df_1h = data_dict['1h'].copy()
-            
-            # Calculate volatility (using ATR or similar measure)
-            high_low_range = df_1h['high'] - df_1h['low']
-            close_to_close = abs(df_1h['close'] - df_1h['close'].shift(1))
-            true_range = pd.concat([high_low_range, close_to_close], axis=1).max(axis=1)
-            atr_14 = true_range.rolling(window=14).mean().iloc[-1]
-            
-            # Normalize ATR by current price
-            current_price = df_1h['close'].iloc[-1]
-            normalized_atr = atr_14 / current_price
-            
-            # Calculate directional movement for trending or ranging market
-            df_1h['daily_return'] = df_1h['close'].pct_change()
-            df_1h['direction'] = np.where(df_1h['daily_return'] > 0, 1, -1)
-            
-            # Check if market has been consistently moving in one direction
-            directional_consistency = abs(df_1h['direction'].tail(14).sum()) / 14
-            
-            # Determine market conditions based on volatility and consistency
-            high_volatility = normalized_atr > 0.015  # 1.5% volatility threshold
-            trending_market = directional_consistency > 0.6  # 60% consistency threshold
-            
-            if high_volatility and trending_market:
-                # High volatility trending market favors swing trading
-                self.market_state = "swing"
-                logger.info(f"Market state for {self.symbol}: High volatility trending market - selecting Swing Trading")
-            elif high_volatility and not trending_market:
-                # High volatility ranging market can work with both strategies
-                self.market_state = "mixed"
-                logger.info(f"Market state for {self.symbol}: High volatility ranging market - using mixed strategies")
-            elif not high_volatility and trending_market:
-                # Low volatility trending market can work with both strategies
-                self.market_state = "mixed"
-                logger.info(f"Market state for {self.symbol}: Low volatility trending market - using mixed strategies")
-            else:
-                # Low volatility ranging market favors scalping
-                self.market_state = "scalping"
-                logger.info(f"Market state for {self.symbol}: Low volatility ranging market - selecting Scalping")
+                # Calculate market volatility using ATR
+                if 'atr' not in df.columns:
+                    from app.indicators.technical_indicators import TechnicalIndicators
+                    df = TechnicalIndicators.add_indicators(df)
+                
+                # Analyze last 20 candles
+                recent_df = df.tail(20)
+                
+                # Check volatility relative to price
+                atr = recent_df['atr'].iloc[-1]
+                close = recent_df['close'].iloc[-1]
+                volatility_pct = atr / close
+                
+                # Check trend strength
+                directional_movement = abs(recent_df['close'].iloc[-1] - recent_df['close'].iloc[0]) / recent_df['close'].iloc[0]
+                
+                # Determine market state
+                if volatility_pct > 0.02:  # High volatility (2%+)
+                    if directional_movement < 0.03:  # Range-bound
+                        self.current_market_state = "scalping"
+                    else:  # Trending with high volatility
+                        self.current_market_state = "mixed"
+                else:  # Low volatility
+                    if directional_movement > 0.05:  # Strong trend
+                        self.current_market_state = "swing"
+                    else:  # Low volatility, weak trend
+                        self.current_market_state = "mixed"
+                        
+                logger.info(f"Market state for {self.symbol}: {self.current_market_state} (volatility: {volatility_pct:.4f}, directional: {directional_movement:.4f})")
                 
         except Exception as e:
-            logger.error(f"Error analyzing market state for {self.symbol}: {e}")
-            self.market_state = "mixed"  # Default to mixed strategies
+            logger.error(f"Error analyzing market state: {e}")
+            
+        return self.current_market_state
     
     def get_best_strategy(self):
         """
         Get the best strategy based on current market conditions
         
         Returns:
-            tuple: (strategy, name) - (strategy object, strategy name)
+            tuple: (strategy_name, strategy_object)
         """
-        if self.market_state == "scalping" and self.scalping_strategy:
-            return self.scalping_strategy, "Scalping"
-        elif self.market_state == "swing" and self.swing_strategy:
-            return self.swing_strategy, "Swing"
-        else:
-            # For mixed state, evaluate signals from both strategies and pick the strongest
-            scalping_should_enter, scalping_signal = self.scalping_strategy.should_enter_trade() if self.scalping_strategy else (False, None)
-            swing_should_enter, swing_signal = self.swing_strategy.should_enter_trade() if self.swing_strategy else (False, None)
+        if not self.strategies:
+            logger.warning("No strategies available")
+            return None, None
             
-            # Compare signal strengths
-            if scalping_should_enter and swing_should_enter:
-                if scalping_signal['strength'] > swing_signal['strength']:
-                    return self.scalping_strategy, "Scalping"
-                else:
-                    return self.swing_strategy, "Swing"
-            elif scalping_should_enter:
-                return self.scalping_strategy, "Scalping"
-            elif swing_should_enter:
-                return self.swing_strategy, "Swing"
-            else:
-                # No clear signals, default to scalping for higher frequency
-                return self.scalping_strategy if self.scalping_strategy else self.swing_strategy, "Default"
+        # If only one strategy is enabled, return it
+        if len(self.strategies) == 1:
+            strategy_name = list(self.strategies.keys())[0]
+            return strategy_name, self.strategies[strategy_name]
+            
+        # Determine best strategy based on market state
+        if self.current_market_state == "scalping" and "scalping" in self.strategies:
+            return "scalping", self.strategies["scalping"]
+            
+        elif self.current_market_state == "swing" and "swing" in self.strategies:
+            return "swing", self.strategies["swing"]
+            
+        # For mixed state or if preferred strategy is not available,
+        # choose based on signal strength
+        scalping_score = 0
+        swing_score = 0
+        
+        # Check signals from each strategy
+        if "scalping" in self.strategies and self.strategies["scalping"] is not None:
+            should_enter, signal = self.strategies["scalping"].should_enter_trade()
+            if should_enter:
+                scalping_score = 1
+                
+        if "swing" in self.strategies and self.strategies["swing"] is not None:
+            should_enter, signal = self.strategies["swing"].should_enter_trade()
+            if should_enter:
+                swing_score = 1
+                
+        # Choose the strategy with the higher score
+        if scalping_score > swing_score:
+            return "scalping", self.strategies["scalping"]
+        elif swing_score > scalping_score:
+            return "swing", self.strategies["swing"]
+        else:
+            # If tied or no signals, default to scalping for now
+            return "scalping", self.strategies.get("scalping")
     
     def should_enter_trade(self):
         """
-        Check if any strategy should enter a trade
+        Check if any strategy indicates a trade entry
         
         Returns:
-            tuple: (bool, dict, str) - (should_enter, signal_data, strategy_name)
+            tuple: (should_enter, strategy_name, signal_data)
         """
-        # Get best strategy for current market conditions
-        best_strategy, strategy_name = self.get_best_strategy()
+        strategy_name, strategy = self.get_best_strategy()
         
-        if not best_strategy:
+        if strategy is None:
             return False, None, None
             
-        # Check if best strategy has a trade signal
-        should_enter, signal_data = best_strategy.should_enter_trade()
+        should_enter, signal_data = strategy.should_enter_trade()
         
-        if should_enter and signal_data:
+        if should_enter:
             logger.info(f"Trade entry signal from {strategy_name} strategy for {self.symbol}")
-            return True, signal_data, strategy_name
+            return True, strategy_name, signal_data
             
         return False, None, None 

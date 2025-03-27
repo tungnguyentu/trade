@@ -1,112 +1,131 @@
-from abc import ABC, abstractmethod
 import pandas as pd
-from datetime import datetime
+import numpy as np
+from abc import ABC, abstractmethod
 from app.indicators.technical_indicators import TechnicalIndicators
 from app.utils.logger import get_logger
 
 logger = get_logger()
 
 class BaseStrategy(ABC):
-    def __init__(self, symbol, timeframes=None):
+    """
+    Abstract base class for all trading strategies
+    
+    All trading strategies should inherit from this class
+    and implement the required methods.
+    """
+    
+    def __init__(self, symbol, timeframes):
+        """
+        Initialize the base strategy
+        
+        Args:
+            symbol (str): Trading symbol (e.g., 'BTCUSDT')
+            timeframes (list): List of timeframes to analyze (e.g., ['1m', '5m', '15m'])
+        """
         self.symbol = symbol
-        self.timeframes = timeframes or ['1m', '5m', '15m', '1h', '4h']
+        self.timeframes = timeframes
         self.indicators = TechnicalIndicators()
-        self.data = {}
-        self.trade_signals = []
-        self.name = "BaseStrategy"
+        self.data = {}  # Data for each timeframe
         
     def prepare_data(self, data_dict):
         """
-        Prepare data for strategy analysis
+        Prepare data for the strategy by adding necessary indicators
         
         Args:
-            data_dict (dict): Dictionary with timeframe as key and DataFrame as value
+            data_dict (dict): Dictionary of DataFrames by timeframe
             
         Returns:
-            dict: Dictionary with prepared data for each timeframe
+            dict: Dictionary of prepared DataFrames by timeframe
         """
         self.data = {}
-        try:
-            for timeframe, df in data_dict.items():
-                if timeframe not in self.timeframes:
-                    continue
-                    
-                # Add technical indicators
-                prepared_df = TechnicalIndicators.add_all_indicators(df.copy())
+        
+        for timeframe, df in data_dict.items():
+            if timeframe in self.timeframes:
+                # Add all indicators needed for this strategy
+                prepared_df = self.indicators.add_all_indicators(df.copy())
                 self.data[timeframe] = prepared_df
                 
-            return self.data
-        except Exception as e:
-            logger.error(f"Error preparing data for {self.name}: {e}")
-            return {}
+        return self.data
     
     @abstractmethod
-    def generate_signals(self):
+    def generate_signal(self):
         """
-        Generate trading signals
+        Generate a trading signal based on the current data
         
         Returns:
-            dict: Signal information
+            dict: Signal data with action, direction, reasoning, etc.
         """
         pass
     
     @abstractmethod
     def should_enter_trade(self):
         """
-        Check if strategy should enter a trade
+        Determine if a new trade should be entered
         
         Returns:
-            tuple: (bool, dict) - (should_enter, signal_data)
+            tuple: (should_enter, signal_data)
         """
         pass
-    
+        
     @abstractmethod
-    def should_exit_trade(self, entry_price, current_position):
+    def should_exit_trade(self, position_data):
         """
-        Check if strategy should exit a trade
+        Determine if an existing trade should be exited
         
         Args:
-            entry_price (float): Entry price
-            current_position (dict): Current position information
+            position_data (dict): Current position data
             
         Returns:
-            tuple: (bool, str) - (should_exit, reason)
+            tuple: (should_exit, exit_reason)
         """
         pass
     
-    def calculate_stop_loss(self, entry_price, is_long=True):
+    def get_stop_loss_price(self, entry_price, direction, atr_value=None):
         """
-        Calculate stop loss price
+        Calculate stop loss price based on ATR or fixed percentage
         
         Args:
             entry_price (float): Entry price
-            is_long (bool): Whether position is long
+            direction (str): 'long' or 'short'
+            atr_value (float, optional): ATR value for dynamic stop loss
             
         Returns:
             float: Stop loss price
         """
-        # Default implementation - override in specific strategies
-        if is_long:
-            return entry_price * 0.98  # 2% below entry for long
+        if atr_value:
+            # Use ATR for dynamic stop loss
+            stop_distance = atr_value * 2  # 2x ATR
         else:
-            return entry_price * 1.02  # 2% above entry for short
-    
-    def calculate_take_profit(self, entry_price, is_long=True):
+            # Use fixed percentage (2%)
+            stop_distance = entry_price * 0.02
+            
+        if direction == 'long':
+            return entry_price - stop_distance
+        else:
+            return entry_price + stop_distance
+            
+    def get_take_profit_price(self, entry_price, direction, risk_reward_ratio=2):
         """
-        Calculate take profit price
+        Calculate take profit price based on risk-reward ratio
         
         Args:
             entry_price (float): Entry price
-            is_long (bool): Whether position is long
+            direction (str): 'long' or 'short'
+            risk_reward_ratio (float): Risk-reward ratio (default: 2)
             
         Returns:
             float: Take profit price
         """
-        # Default implementation - override in specific strategies
-        if is_long:
-            return entry_price * 1.03  # 3% above entry for long
+        # Calculate stop loss price
+        stop_loss = self.get_stop_loss_price(entry_price, direction)
+        
+        # Calculate take profit based on risk-reward ratio
+        if direction == 'long':
+            stop_distance = entry_price - stop_loss
+            return entry_price + (stop_distance * risk_reward_ratio)
         else:
-            return entry_price * 0.97  # 3% below entry for short
+            stop_distance = stop_loss - entry_price
+            return entry_price - (stop_distance * risk_reward_ratio)
     
     def get_signal_reasoning(self, signal_data):
         """
@@ -116,13 +135,34 @@ class BaseStrategy(ABC):
             signal_data (dict): Signal data
             
         Returns:
-            str: Signal reasoning text
+            str: Human-readable reasoning
         """
-        # Default implementation - override in specific strategies
-        return f"Signal generated by {self.name} strategy."
-    
-    def _timestamp_to_string(self, timestamp):
-        """Convert timestamp to string format"""
-        if isinstance(timestamp, pd.Timestamp):
-            return timestamp.strftime('%Y-%m-%d %H:%M:%S')
-        return str(timestamp) 
+        direction = signal_data.get('direction', 'unknown')
+        timeframe = signal_data.get('timeframe', 'multiple timeframes')
+        indicators = signal_data.get('indicators', {})
+        
+        reasoning = f"{direction.capitalize()} signal detected on {timeframe} timeframe.\n"
+        
+        # Add indicator-specific reasoning
+        if 'rsi' in indicators:
+            rsi_value = indicators['rsi']
+            if direction == 'long':
+                reasoning += f"RSI ({rsi_value:.2f}) shows oversold conditions.\n"
+            else:
+                reasoning += f"RSI ({rsi_value:.2f}) shows overbought conditions.\n"
+                
+        if 'macd' in indicators:
+            if direction == 'long':
+                reasoning += "MACD crossed above signal line.\n"
+            else:
+                reasoning += "MACD crossed below signal line.\n"
+                
+        # Add price action reasoning
+        if 'price_action' in signal_data:
+            reasoning += signal_data['price_action'] + "\n"
+            
+        # Add trend reasoning
+        if 'trend' in signal_data:
+            reasoning += f"Overall trend: {signal_data['trend']}.\n"
+            
+        return reasoning 

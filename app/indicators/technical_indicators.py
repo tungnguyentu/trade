@@ -2,15 +2,157 @@ import pandas as pd
 import numpy as np
 import ta
 from app.config.config import (
-    RSI_PERIOD, RSI_OVERBOUGHT, RSI_OVERSOLD,
-    BOLLINGER_PERIOD, BOLLINGER_STD_DEV,
-    MACD_FAST, MACD_SLOW, MACD_SIGNAL
+    RSI_PERIOD,
+    BOLLINGER_PERIOD,
+    BOLLINGER_STD_DEV,
+    EMA_SHORT,
+    EMA_LONG,
+    MACD_FAST,
+    MACD_SLOW,
+    MACD_SIGNAL,
+    ATR_PERIOD,
+    SCALPING_RSI_OVERBOUGHT,
+    SCALPING_RSI_OVERSOLD
 )
 from app.utils.logger import get_logger
 
 logger = get_logger()
 
 class TechnicalIndicators:
+    """
+    Class for calculating technical indicators used by strategies
+    """
+    
+    @staticmethod
+    def add_indicators(df):
+        """
+        Add technical indicators to a DataFrame
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLCV data
+        
+        Returns:
+            pd.DataFrame: DataFrame with added indicators
+        """
+        # Ensure DataFrame has required columns
+        required_columns = ['open', 'high', 'low', 'close', 'volume']
+        if not all(col in df.columns for col in required_columns):
+            raise ValueError(f"DataFrame must contain columns: {', '.join(required_columns)}")
+        
+        # Make a copy to avoid modifying the original DataFrame
+        df = df.copy()
+        
+        # Calculate RSI
+        df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=RSI_PERIOD).rsi()
+        
+        # Calculate Bollinger Bands
+        bollinger = ta.volatility.BollingerBands(
+            close=df['close'], 
+            window=BOLLINGER_PERIOD, 
+            window_dev=BOLLINGER_STD_DEV
+        )
+        df['bollinger_mavg'] = bollinger.bollinger_mavg()
+        df['bollinger_upper'] = bollinger.bollinger_hband()
+        df['bollinger_lower'] = bollinger.bollinger_lband()
+        
+        # Calculate MACD
+        macd = ta.trend.MACD(
+            close=df['close'],
+            window_slow=MACD_SLOW,
+            window_fast=MACD_FAST,
+            window_sign=MACD_SIGNAL
+        )
+        df['macd'] = macd.macd()
+        df['macd_signal'] = macd.macd_signal()
+        df['macd_histogram'] = macd.macd_diff()
+        
+        # Calculate EMA
+        df['ema_short'] = ta.trend.EMAIndicator(close=df['close'], window=EMA_SHORT).ema_indicator()
+        df['ema_long'] = ta.trend.EMAIndicator(close=df['close'], window=EMA_LONG).ema_indicator()
+        
+        # Calculate ATR
+        df['atr'] = ta.volatility.AverageTrueRange(
+            high=df['high'],
+            low=df['low'],
+            close=df['close'],
+            window=ATR_PERIOD
+        ).average_true_range()
+        
+        # Calculate Ichimoku Cloud
+        ichimoku = ta.trend.IchimokuIndicator(
+            high=df['high'],
+            low=df['low'],
+            window1=9,
+            window2=26,
+            window3=52
+        )
+        df['ichimoku_a'] = ichimoku.ichimoku_a()
+        df['ichimoku_b'] = ichimoku.ichimoku_b()
+        df['ichimoku_base'] = ichimoku.ichimoku_base_line()
+        df['ichimoku_conversion'] = ichimoku.ichimoku_conversion_line()
+        
+        # Calculate On-Balance Volume (OBV)
+        df['obv'] = ta.volume.OnBalanceVolumeIndicator(
+            close=df['close'],
+            volume=df['volume']
+        ).on_balance_volume()
+        
+        return df
+    
+    @staticmethod
+    def is_overbought(rsi_value):
+        """Check if RSI indicates overbought condition"""
+        return rsi_value > SCALPING_RSI_OVERBOUGHT
+    
+    @staticmethod
+    def is_oversold(rsi_value):
+        """Check if RSI indicates oversold condition"""
+        return rsi_value < SCALPING_RSI_OVERSOLD
+    
+    @staticmethod
+    def calculate_support_resistance(df, window=20):
+        """
+        Calculate support and resistance levels
+        
+        Args:
+            df (pd.DataFrame): DataFrame with OHLCV data
+            window (int): Lookback window for calculating levels
+            
+        Returns:
+            tuple: (support_level, resistance_level)
+        """
+        if len(df) < window:
+            return None, None
+            
+        # Get recent price data
+        recent_data = df.tail(window)
+        
+        # Find local minima and maxima
+        support_levels = []
+        resistance_levels = []
+        
+        for i in range(1, len(recent_data) - 1):
+            if recent_data['low'].iloc[i] < recent_data['low'].iloc[i-1] and \
+               recent_data['low'].iloc[i] < recent_data['low'].iloc[i+1]:
+                support_levels.append(recent_data['low'].iloc[i])
+                
+            if recent_data['high'].iloc[i] > recent_data['high'].iloc[i-1] and \
+               recent_data['high'].iloc[i] > recent_data['high'].iloc[i+1]:
+                resistance_levels.append(recent_data['high'].iloc[i])
+        
+        # Calculate average support and resistance if available
+        if support_levels:
+            support = sum(support_levels) / len(support_levels)
+        else:
+            support = df['low'].tail(window).min()
+            
+        if resistance_levels:
+            resistance = sum(resistance_levels) / len(resistance_levels)
+        else:
+            resistance = df['high'].tail(window).max()
+            
+        return support, resistance
+
     @staticmethod
     def add_rsi(df, period=RSI_PERIOD, column='close'):
         """Add Relative Strength Index to dataframe"""

@@ -62,7 +62,7 @@ class BinanceClient:
             list: List of klines data
         """
         try:
-            # Use futures API for getting historical klines
+            # For futures data, use the futures_klines method
             return self._client.futures_klines(
                 symbol=symbol,
                 interval=interval,
@@ -72,7 +72,15 @@ class BinanceClient:
             )
         except BinanceAPIException as e:
             logger.error(f"Error fetching historical klines: {e}")
-            raise
+            # Fallback to normal klines if futures API not available
+            logger.info("Falling back to spot klines")
+            return self._client.get_klines(
+                symbol=symbol,
+                interval=interval,
+                startTime=start_str,
+                endTime=end_str,
+                limit=1000
+            )
     
     def get_exchange_info(self):
         """Get Binance Futures exchange information"""
@@ -115,10 +123,13 @@ class BinanceClient:
     def get_current_price(self, symbol):
         """Get current price for a symbol"""
         try:
-            return float(self._client.futures_mark_price(symbol=symbol)['markPrice'])
+            mark_price = self._client.futures_mark_price(symbol=symbol)
+            return float(mark_price['markPrice'])
         except BinanceAPIException as e:
             logger.error(f"Error fetching current price for {symbol}: {e}")
-            raise
+            logger.info(f"Falling back to spot price")
+            ticker = self._client.get_symbol_ticker(symbol=symbol)
+            return float(ticker['price'])
     
     def set_leverage(self, symbol, leverage):
         """Set leverage for a symbol"""
