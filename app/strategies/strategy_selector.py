@@ -162,22 +162,48 @@ class StrategySelector:
             # If tied or no signals, default to scalping for now
             return "scalping", self.strategies.get("scalping")
     
-    def should_enter_trade(self):
+    def should_enter_trade(self, market_data=None):
         """
         Check if any strategy indicates a trade entry
         
+        Args:
+            market_data (dict, optional): Latest market data. If None, will use data from prepare_strategies
+            
         Returns:
-            tuple: (should_enter, strategy_name, signal_data)
+            dict: Dictionary with entry info or None if no entry signal
         """
         strategy_name, strategy = self.get_best_strategy()
         
         if strategy is None:
-            return False, None, None
-            
-        should_enter, signal_data = strategy.should_enter_trade()
+            return None
         
-        if should_enter:
-            logger.info(f"Trade entry signal from {strategy_name} strategy for {self.symbol}")
-            return True, strategy_name, signal_data
+        try:
+            # Pass market_data to strategy's should_enter_trade if available
+            if market_data is not None and hasattr(strategy, 'should_enter_trade'):
+                should_enter, signal_data = strategy.should_enter_trade(market_data)
+            else:
+                should_enter, signal_data = strategy.should_enter_trade()
             
-        return False, None, None 
+            if should_enter and signal_data:
+                logger.info(f"Trade entry signal from {strategy_name} strategy for {self.symbol}")
+                return {
+                    "should_enter": True,
+                    "strategy_name": strategy_name,
+                    "signal_data": signal_data
+                }
+        except Exception as e:
+            logger.error(f"Error checking entry signal for {self.symbol} with {strategy_name} strategy: {e}")
+            
+        return None
+        
+    def get_strategy_by_name(self, strategy_name):
+        """
+        Get a strategy by name
+        
+        Args:
+            strategy_name (str): Name of the strategy
+            
+        Returns:
+            object: Strategy object or None if not found
+        """
+        return self.strategies.get(strategy_name.lower(), None) 
