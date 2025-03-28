@@ -43,97 +43,96 @@ class TradingBot:
         )
 
     def run_trading_cycle(self):
-        """Run a single trading cycle (check signals, manage positions)"""
-        logger.info(f"Running trading cycle at {datetime.now()}")
-
-        # Check if we should continue trading based on risk management
-        if not self.risk_manager.should_continue_trading():
-            logger.warning("Maximum drawdown reached, stopping trading")
-            self.notifier.send_error(
-                "⚠️ Maximum drawdown reached, trading stopped! Please restart manually."
-            )
-            return False
-
+        """Run a single trading cycle - check signals and execute trades"""
         try:
+            logger.info("Starting trading cycle")
+            
             # Process each symbol
             for symbol in self.symbols:
-                # Fetch current market data
-                data_dict = self.data_handler.prepare_data_for_strategy(
-                    symbol, self.timeframes
-                )
-
-                # Skip if no data available
-                if not data_dict:
-                    logger.warning(f"No data available for {symbol}, skipping")
-                    continue
-
-                # Prepare data for strategy
-                self.strategy_selectors[symbol].prepare_strategies(data_dict)
-
-                # Check if we have an open position for this symbol
-                position_exists = symbol in self.order_manager.open_positions
-
-                if position_exists:
-                    # Get the appropriate strategy for checking exit signals
+                # Check for exit signals on open positions
+                if symbol in self.order_manager.open_positions:
                     position = self.order_manager.open_positions[symbol]
-                    if position["strategy"] == "Scalping":
-                        strategy = self.strategy_selectors[symbol].scalping_strategy
-                    else:
-                        strategy = self.strategy_selectors[symbol].swing_strategy
-
-                    if not strategy:
+                    
+                    # Use the strategy that opened the position
+                    strategy_selector = self.strategy_selectors[symbol]
+                    market_data = self.data_handler.get_latest_market_data(symbol)
+                    
+                    # Skip if we couldn't get market data
+                    if not market_data or len(market_data) == 0:
+                        logger.warning(f"No market data available for {symbol}")
                         continue
+                    
+                    # Check if the strategy indicates we should exit
+                    try:
+                        strategy_name = position.get("strategy", "Unknown")
+                        strategy = strategy_selector.get_strategy_by_name(strategy_name)
+                        
+                        if strategy and strategy.should_exit_trade(market_data, position):
+                            # Close position
+                            current_price = float(market_data["close"])
+                            self.order_manager.close_position(symbol, current_price)
+                    except KeyError as e:
+                        logger.warning(f"Missing data when checking exit signal for {symbol}: {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error checking exit signal for {symbol}: {e}")
+                        continue
+                
+                # Check for entry signals if we don't have an open position
+                if symbol not in self.order_manager.open_positions:
+                    strategy_selector = self.strategy_selectors[symbol]
+                    market_data = self.data_handler.get_latest_market_data(symbol)
+                    
+                    # Skip if we couldn't get market data
+                    if not market_data or len(market_data) == 0:
+                        logger.warning(f"No market data available for {symbol}")
+                        continue
+                    
+                    # Check if any strategy indicates we should enter
+                    try:
+                        signal = strategy_selector.should_enter_trade(market_data)
+                        
+                        if signal and signal["should_enter"]:
+                            # Get signal data
+                            strategy_name = signal.get("strategy_name", "Unknown")
+                            entry_price = float(market_data["close"])
+                            signal_data = signal.get("signal_data", {})
+                            
+                            # Ensure we have stop loss and take profit
+                            stop_loss = signal_data.get("stop_loss_price")
+                            take_profit = signal_data.get("take_profit_price")
+                            
+                            if not stop_loss or not take_profit:
+                                logger.warning(f"Missing stop loss or take profit for {symbol} entry signal")
+                                continue
+                            
+                            # Log signal
+                            logger.info(
+                                f"Entry signal for {symbol} at {entry_price} "
+                                f"(Strategy: {strategy_name}, SL: {stop_loss}, TP: {take_profit})"
+                            )
 
-                    # Get latest data for the primary timeframe
-                    primary_tf = min(
-                        self.timeframes, key=lambda x: self._get_timeframe_minutes(x)
-                    )
-                    if primary_tf not in data_dict:
-                        primary_tf = next(iter(data_dict))
+                            # Calculate position size
+                            quantity = self.risk_manager.calculate_position_size(
+                                symbol, entry_price, stop_loss
+                            )
 
-                    # Check for exit signals
-                    self.order_manager.check_open_positions(
-                        symbol, data_dict[primary_tf], strategy
-                    )
-                else:
-                    # Check for entry signals
-                    should_enter, signal_data, strategy_name = self.strategy_selectors[
-                        symbol
-                    ].should_enter_trade()
-
-                    if should_enter and signal_data:
-                        # Calculate entry parameters
-                        entry_price = signal_data["price"]
-                        is_long = signal_data["type"] == "long"
-
-                        # Get strategy for calculating stop loss and take profit
-                        best_strategy, _ = self.strategy_selectors[
-                            symbol
-                        ].get_best_strategy()
-
-                        # Calculate stop loss and take profit
-                        stop_loss = best_strategy.calculate_stop_loss(
-                            entry_price, is_long
-                        )
-                        take_profit = best_strategy.calculate_take_profit(
-                            entry_price, is_long
-                        )
-
-                        # Calculate position size
-                        quantity = self.risk_manager.calculate_position_size(
-                            symbol, entry_price, stop_loss
-                        )
-
-                        # Open position
-                        self.order_manager.open_position(
-                            symbol=symbol,
-                            entry_price=entry_price,
-                            quantity=quantity,
-                            stop_loss=stop_loss,
-                            take_profit=take_profit,
-                            strategy_type=strategy_name,
-                            signal_data=signal_data,
-                        )
+                            # Open position
+                            self.order_manager.open_position(
+                                symbol=symbol,
+                                entry_price=entry_price,
+                                quantity=quantity,
+                                stop_loss=stop_loss,
+                                take_profit=take_profit,
+                                strategy_type=strategy_name,
+                                signal_data=signal_data,
+                            )
+                    except KeyError as e:
+                        logger.warning(f"Missing data when checking entry signal for {symbol}: {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error checking entry signal for {symbol}: {e}")
+                        continue
 
             # Send periodic status update (every 4 hours)
             current_hour = datetime.now().hour
@@ -144,7 +143,7 @@ class TradingBot:
 
         except Exception as e:
             logger.error(f"Error in trading cycle: {e}")
-            self.notifier.send_error(f"Error in trading cycle: {e}")
+            self.notifier.send_error(f"Error in trading cycle: {str(e)}")
             return True  # Continue trading despite error
 
     def _get_timeframe_minutes(self, timeframe):

@@ -3,12 +3,15 @@ import numpy as np
 from datetime import datetime
 from app.utils.binance_client import BinanceClient
 from app.utils.logger import get_logger
+from app.indicators.technical_indicators import TechnicalIndicators
 
 logger = get_logger()
 
 class DataHandler:
     def __init__(self):
         self.binance_client = BinanceClient()
+        self.indicator_manager = TechnicalIndicators()
+        self.cached_data = {}  # Simple cache for fetched data
         
     def fetch_ohlcv_data(self, symbol, interval, limit=500, start_time=None, end_time=None):
         """
@@ -76,12 +79,56 @@ class DataHandler:
             for timeframe in timeframes:
                 df = self.fetch_ohlcv_data(symbol, timeframe)
                 if not df.empty:
+                    # Add technical indicators to the dataframe
+                    try:
+                        df = TechnicalIndicators.add_all_indicators(df)
+                    except Exception as e:
+                        logger.error(f"Error adding indicators for {symbol} {timeframe}: {e}")
+                        # Continue with basic data even if indicators fail
+                    
                     data[timeframe] = df
                 
             return data
         except Exception as e:
             logger.error(f"Error preparing data for {symbol}: {e}")
             return data
+    
+    def get_latest_market_data(self, symbol):
+        """
+        Get the latest market data for a symbol with technical indicators
+        
+        Args:
+            symbol (str): Trading pair symbol
+            
+        Returns:
+            dict: Dictionary with market data and indicators
+        """
+        try:
+            # Get the latest candle from 1m timeframe
+            df = self.fetch_ohlcv_data(symbol, '1m', limit=100)
+            
+            if df.empty:
+                logger.warning(f"No market data available for {symbol}")
+                return {}
+            
+            # Add technical indicators
+            try:
+                df = TechnicalIndicators.add_all_indicators(df)
+            except Exception as e:
+                logger.error(f"Error adding indicators for {symbol}: {e}")
+                # Continue with basic data even if indicators fail
+            
+            # Get the latest row
+            latest = df.iloc[-1].to_dict()
+            
+            # Add some timestamp information
+            latest['timestamp'] = df.index[-1]
+            
+            return latest
+            
+        except Exception as e:
+            logger.error(f"Error getting latest market data for {symbol}: {e}")
+            return {}
     
     def resample_data(self, df, timeframe):
         """

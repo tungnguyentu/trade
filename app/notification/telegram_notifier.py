@@ -42,15 +42,29 @@ class TelegramNotifier:
             return False
             
         try:
+            # Escape special characters for Markdown
+            # Replace problematic characters with escaped versions
+            message = message.replace('_', '\\_').replace('*', '\\*').replace('`', '\\`').replace('[', '\\[')
+            
             self._bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=message,
-                parse_mode='Markdown'
+                parse_mode=None  # Disable Markdown parsing to avoid entity errors
             )
             return True
         except TelegramError as e:
             logger.error(f"Failed to send Telegram message: {e}")
-            return False
+            # Try again without parse mode if it failed
+            try:
+                self._bot.send_message(
+                    chat_id=TELEGRAM_CHAT_ID,
+                    text=message,
+                    parse_mode=None
+                )
+                return True
+            except TelegramError as e2:
+                logger.error(f"Failed to send Telegram message again: {e2}")
+                return False
     
     def send_message(self, message):
         """Send message to Telegram channel"""
