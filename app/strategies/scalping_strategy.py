@@ -138,27 +138,159 @@ class ScalpingStrategy(BaseStrategy):
             
         return signal
     
-    def should_enter_trade(self):
+    def should_enter_trade(self, market_data=None):
         """
         Determine if a new trade should be entered
         
+        Args:
+            market_data (dict, optional): Latest market data. If provided, will use this instead of self.data
+            
         Returns:
             tuple: (should_enter, signal_data)
         """
+        # If market_data is provided directly, analyze it
+        if market_data is not None:
+            try:
+                # Check if we have the required indicators
+                if 'rsi' in market_data and 'bollinger_upper' in market_data and 'bollinger_lower' in market_data:
+                    # Initialize with no action
+                    signal = {
+                        "action": "none",
+                        "timestamp": pd.Timestamp.now(),
+                        "timeframe": self.primary_timeframe
+                    }
+                    
+                    # Check for oversold conditions (long entry)
+                    if (
+                        # RSI below oversold threshold
+                        market_data['rsi'] < SCALPING_RSI_OVERSOLD and
+                        # Price is below lower Bollinger Band
+                        market_data['close'] < market_data['bollinger_lower']
+                    ):
+                        # Long entry signal
+                        signal = {
+                            "action": "entry",
+                            "direction": "long",
+                            "indicators": {
+                                "rsi": market_data['rsi'],
+                                "bb_lower": market_data['bollinger_lower'],
+                                "price": market_data['close']
+                            },
+                            "reasoning": f"Oversold conditions with RSI at {market_data['rsi']:.2f} and price below lower Bollinger Band",
+                            "entry_price": float(market_data['close']),
+                            "strategy_name": "Scalping"
+                        }
+                        
+                    # Check for overbought conditions (short entry)
+                    elif (
+                        # RSI above overbought threshold
+                        market_data['rsi'] > SCALPING_RSI_OVERBOUGHT and
+                        # Price is above upper Bollinger Band
+                        market_data['close'] > market_data['bollinger_upper']
+                    ):
+                        # Short entry signal
+                        signal = {
+                            "action": "entry",
+                            "direction": "short",
+                            "indicators": {
+                                "rsi": market_data['rsi'],
+                                "bb_upper": market_data['bollinger_upper'],
+                                "price": market_data['close']
+                            },
+                            "reasoning": f"Overbought conditions with RSI at {market_data['rsi']:.2f} and price above upper Bollinger Band",
+                            "entry_price": float(market_data['close']),
+                            "strategy_name": "Scalping"
+                        }
+                    
+                    # If we have an entry signal, calculate stop loss and take profit
+                    if signal["action"] == "entry":
+                        entry_price = float(market_data['close'])
+                        direction = signal["direction"]
+                        
+                        if 'atr' in market_data and not pd.isna(market_data['atr']):
+                            atr_value = market_data['atr']
+                            stop_loss = self.get_stop_loss_price(entry_price, direction, atr_value)
+                        else:
+                            stop_loss = self.get_stop_loss_price(entry_price, direction)
+                            
+                        take_profit = self.get_take_profit_price(entry_price, direction)
+                        
+                        # Add price levels to signal
+                        signal["stop_loss_price"] = stop_loss
+                        signal["take_profit_price"] = take_profit
+                        signal["risk_per_trade"] = self.stop_loss_pct
+                    
+                    should_enter = signal["action"] == "entry"
+                    return should_enter, signal
+                else:
+                    logger.warning(f"Missing required indicators in market data for {self.symbol}")
+                    return False, {"action": "none", "reason": "Missing indicators"}
+            except Exception as e:
+                logger.error(f"Error analyzing market data for {self.symbol}: {e}")
+                return False, {"action": "none", "reason": f"Error: {str(e)}"}
+        
+        # Otherwise use the signal generated from historical data
         signal = self.generate_signal()
         should_enter = signal["action"] == "entry"
         return should_enter, signal
     
-    def should_exit_trade(self, position_data):
+    def should_exit_trade(self, market_data=None, position_data=None):
         """
         Determine if an existing trade should be exited
         
         Args:
+            market_data (dict, optional): Latest market data
             position_data (dict): Current position data
             
         Returns:
             tuple: (should_exit, exit_reason)
         """
+        # If no position data provided, can't make exit decision
+        if position_data is None:
+            return False, "No position data available"
+            
+        # Use provided market data if available
+        if market_data is not None:
+            try:
+                # Check if we have the required indicators
+                if 'rsi' in market_data and 'bollinger_upper' in market_data and 'bollinger_lower' in market_data:
+                    # Extract position details
+                    entry_price = position_data.get("entry_price", 0)
+                    direction = "long" if position_data.get("side") == "BUY" else "short"
+                    
+                    # Calculate current profit/loss
+                    current_price = float(market_data['close'])
+                    if direction == "long":
+                        profit_pct = (current_price - entry_price) / entry_price
+                    else:
+                        profit_pct = (entry_price - current_price) / entry_price
+                    
+                    # Check exit conditions
+                    
+                    # 1. Check for profit target hit
+                    if profit_pct >= self.profit_target:
+                        return True, f"Profit target reached: {profit_pct:.2%}"
+                        
+                    # 2. Check for RSI reversal
+                    if direction == "long" and market_data['rsi'] > 70:
+                        return True, f"RSI overbought: {market_data['rsi']:.2f}"
+                        
+                    if direction == "short" and market_data['rsi'] < 30:
+                        return True, f"RSI oversold: {market_data['rsi']:.2f}"
+                        
+                    # 3. Check for Bollinger Band mean reversion
+                    if direction == "long" and current_price > market_data['bollinger_upper']:
+                        return True, "Price above upper Bollinger Band"
+                        
+                    if direction == "short" and current_price < market_data['bollinger_lower']:
+                        return True, "Price below lower Bollinger Band"
+                else:
+                    logger.warning(f"Missing required indicators in market data for exit decision on {self.symbol}")
+            except Exception as e:
+                logger.error(f"Error analyzing market data for exit decision on {self.symbol}: {e}")
+                return False, f"Error: {str(e)}"
+        
+        # If market_data wasn't provided or we couldn't use it, use stored data
         if not self.data or self.primary_timeframe not in self.data:
             return False, "No data available"
             
@@ -172,7 +304,6 @@ class ScalpingStrategy(BaseStrategy):
         # Extract position details
         entry_price = position_data.get("entry_price", 0)
         direction = "long" if position_data.get("side") == "BUY" else "short"
-        entry_time = position_data.get("entry_time")
         
         # Calculate current profit/loss
         current_price = current['close']
