@@ -1,203 +1,130 @@
 # Binance Futures Trading Bot
 
-An advanced cryptocurrency trading bot for Binance Futures, implementing Scalping and Swing Trading strategies with dynamic strategy selection based on market conditions.
+A simple, customizable trading bot for Binance Futures with backtesting capabilities and Telegram notifications.
 
 ## Features
 
-- **Dual Trading Strategies**:
-  - **Scalping Strategy**: Fast trades using RSI, Bollinger Bands, and short-term Moving Averages
-  - **Swing Trading Strategy**: Holds trades for hours to days using Ichimoku Cloud, MACD, and volume analysis
-
-- **Intelligent Strategy Selection**:
-  - Dynamically chooses between strategies based on market volatility and trend
-  - Analyzes multiple timeframes for signal confirmation
-
-- **Advanced Risk Management**:
-  - Dynamic position sizing based on risk per trade
-  - Implements trailing stop-losses and take-profit targets
-  - Max drawdown limits to protect capital
-
-- **Order Execution**:
-  - Full integration with Binance Futures API
-  - Support for advanced order types: Market, Limit, Stop Market, Take Profit Market
-  - Support for reduce-only orders and custom trigger prices (mark price or contract price)
-  - Position leverage adjustment using the Binance Futures API
-
-- **Performance Analytics**:
-  - Tracks win rate, profit factor, and Sharpe ratio
-  - Calculates maximum drawdown
-  - Equity curve visualization
-
-- **Real-time Notifications**:
-  - Telegram alerts for trade entries, exits, and system status
-  - Detailed trade reasoning in natural language
-
-- **Multiple Operation Modes**:
-  - Backtesting with historical data
-  - Paper trading on Binance Futures Testnet
-  - Live trading on Binance Futures
+- **Test Mode**: Simulate trades without risking real money
+- **Live Trading**: Execute real trades on Binance Futures
+- **Backtesting**: Test your strategy against historical data
+- **Strategy Optimization**: Find the best parameters for your strategy
+- **Telegram Notifications**: Receive trade signals and position updates
+- **Risk Management**: Automatic stop-loss and take-profit orders
+- **Customizable Strategy**: Combine EMA crossover and RSI indicators
 
 ## Installation
 
 1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/binance-futures-trading-bot.git
-   cd binance-futures-trading-bot
+   ```
+   git clone <repository-url>
+   cd binance-futures-bot
    ```
 
-2. Install required dependencies:
-   ```bash
+2. Install the required dependencies:
+   ```
    pip install -r requirements.txt
    ```
 
-3. Create your configuration file:
-   ```bash
+3. Copy the `.env.example` file to `.env` and fill in your credentials:
+   ```
    cp .env.example .env
    ```
 
-4. Edit the `.env` file with your Binance API credentials and trading parameters.
-
 ## Configuration
 
-Edit the `.env` file to configure your trading parameters. The bot supports a wide range of configuration options:
+Edit the `.env` file with your personal settings:
 
 ```
-# Binance API Credentials
+# Binance API credentials
 BINANCE_API_KEY=your_api_key_here
 BINANCE_API_SECRET=your_api_secret_here
 
-# Telegram Bot Settings
+# Telegram settings
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_telegram_chat_id
 
-# Trading Parameters
-RISK_PER_TRADE=0.01
-MAX_DRAWDOWN=0.20
-BASE_ORDER_SIZE=100  # USDT
-TRADING_MODE=backtest  # backtest, paper, live
+# Trading settings
+SYMBOL=BTCUSDT
+TRADE_SIZE=0.001
+TEST_MODE=True
 
-# Strategy Parameters
-SCALPING_ENABLED=True
-SWING_TRADING_ENABLED=True
+# Strategy parameters
+EMA_FAST=12
+EMA_SLOW=26
+RSI_PERIOD=14
+RSI_OVERSOLD=30
+RSI_OVERBOUGHT=70
 
-# Markets to trade (comma-separated)
-TRADING_SYMBOLS=BTCUSDT,ETHUSDT,SOLUSDT
-
-# Timeframes to analyze (comma-separated)
-TIMEFRAMES=1m,5m,15m,1h,4h
-
-# Futures-specific Parameters
-DEFAULT_LEVERAGE=5
-MARGIN_TYPE=ISOLATED  # ISOLATED or CROSSED
+# Risk management
+STOP_LOSS_PERCENT=2
+TAKE_PROFIT_PERCENT=4
 ```
-
-See the `.env.example` file for the complete list of configuration options.
-
-## Binance Futures API Integration
-
-This bot is built specifically for Binance Futures trading with support for:
-
-- USDⓈ-M Futures markets
-- Isolated and Cross margin modes
-- Adjustable leverage settings
-- Advanced order types: MARKET, LIMIT, STOP_MARKET, TAKE_PROFIT_MARKET
-- Reduce-only orders for position management
-- Mark price triggers for stop orders
-
-The bot uses the official [python-binance](https://github.com/binance/binance-connector-python) library for API interaction, ensuring compatibility with the latest Binance Futures API features.
 
 ## Usage
 
-### Backtesting
+### Trading Mode
 
-Run the bot in backtesting mode to test strategies with historical data:
-
-```bash
-python -m app.main --mode backtest --backtest-start 2023-01-01 --backtest-end 2023-12-31
-```
-
-### Paper Trading
-
-Test the bot with real-time data on the Binance Futures Testnet:
-
-```bash
-python -m app.main --mode paper
-```
-
-### Live Trading
-
-Run the bot in live trading mode with real money on Binance Futures:
-
-```bash
-python -m app.main --mode live
-```
-
-### Additional Options
-
-```bash
-# Specify trading symbols
-python -m app.main --symbols BTCUSDT,ETHUSDT
-
-# Specify timeframes to analyze
-python -m app.main --timeframes 1m,5m,15m,1h,4h
-
-# Change trading cycle interval (in minutes)
-python -m app.main --interval 5
-
-# Set initial balance for backtesting
-python -m app.main --mode backtest --initial-balance 10000
-
-# Set leverage
-python -m app.main --leverage 3
-```
-
-## Running as a Service on Ubuntu Server
-
-1. Create a systemd service file:
-
-```bash
-sudo nano /etc/systemd/system/trading-bot.service
-```
-
-2. Add the following configuration:
+Run the bot in trading mode:
 
 ```
-[Unit]
-Description=Binance Futures Trading Bot
-After=network.target
-
-[Service]
-User=your_username
-WorkingDirectory=/path/to/binance-futures-trading-bot
-ExecStart=/usr/bin/python3 -m app.main --mode paper
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
+python main.py --mode trade --interval 60
 ```
 
-3. Enable and start the service:
+Options:
+- `--interval`: Time in seconds between trading cycles (default: 60)
 
-```bash
-sudo systemctl enable trading-bot
-sudo systemctl start trading-bot
+### Backtesting Mode
+
+Run a backtest on historical data:
+
+```
+python main.py --mode backtest --symbol BTCUSDT --timeframe 1h --start-date "1 month ago UTC"
 ```
 
-4. Check the status:
+Options:
+- `--symbol`: Trading pair (default: from .env)
+- `--timeframe`: Candlestick interval (default: from config)
+- `--start-date`: Start date for backtest (default: "1 month ago UTC")
+- `--end-date`: End date for backtest (default: now)
+- `--no-plot`: Disable generation of result plots
 
-```bash
-sudo systemctl status trading-bot
+### Strategy Optimization
+
+Optimize strategy parameters:
+
+```
+python main.py --mode optimize --symbol BTCUSDT --timeframe 1h --start-date "3 months ago UTC"
 ```
 
-## API Rate Limits and Error Handling
+## Strategy
 
-The bot includes built-in error handling for Binance API errors, including automatic retry logic for rate limit errors. It will handle API errors gracefully to prevent crashes during trading operations.
+The bot uses a combined strategy of EMA crossover and RSI indicators:
 
-## Disclaimer
+1. **Buy Signal**: When the fast EMA crosses above the slow EMA and RSI is below 50
+2. **Sell Signal**: When the fast EMA crosses below the slow EMA or RSI is above the overbought level
 
-This trading bot is provided for educational and informational purposes only. Trading cryptocurrency futures involves substantial risk of loss and is not suitable for all investors. You should carefully consider whether trading is appropriate for you in light of your experience, objectives, financial resources, and risk tolerance.
+## Telegram Bot Setup
+
+1. Create a Telegram bot using [BotFather](https://t.me/botfather)
+2. Get your chat ID by messaging [@userinfobot](https://t.me/userinfobot)
+3. Add your bot token and chat ID to the `.env` file
+
+## Directory Structure
+
+- `data/`: Stores downloaded market data and backtest results
+- `logs/`: Contains application logs
+- `config.py`: Configuration settings
+- `binance_client.py`: Binance API wrapper
+- `indicators.py`: Technical indicators and strategy logic
+- `telegram_bot.py`: Telegram notification system
+- `backtest.py`: Backtesting module
+- `trader.py`: Main trading logic
+- `main.py`: Application entry point
+
+## Risk Warning
+
+Trading cryptocurrencies involves significant risk and can lead to loss of capital. Always start with small amounts in test mode before using real funds.
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details. 
+This project is licensed under the MIT License - see the LICENSE file for details.
