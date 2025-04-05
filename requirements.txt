@@ -1,7 +1,9 @@
-python-binance==1.0.28
+python-binance
 pandas
-ta
-python-telegram-bot
-matplotlib
+numpy
 python-dotenv
-backtrader
+ccxt
+matplotlib
+ta
+pytest
+plotly

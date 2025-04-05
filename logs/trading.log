@@ -1,0 +1,5 @@
+2025-04-05 10:37:19,836 - main - INFO - Starting Binance Futures Trading Bot in Paper Trading mode
+2025-04-05 10:37:20,300 - binance_client - INFO - Connected to Binance Testnet
+2025-04-05 10:37:21,077 - binance_client - ERROR - Error setting margin type: APIError(code=-2014): API-key format invalid.
+2025-04-05 10:37:21,077 - binance_client - ERROR - Failed to initialize Binance client: APIError(code=-2014): API-key format invalid.
+2025-04-05 10:37:21,077 - main - ERROR - Bot stopped due to error: APIError(code=-2014): API-key format invalid.
