@@ -3,6 +3,7 @@ import time
 from config.config import SYMBOL, QUANTITY, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, STRATEGY
 from src.binance_client import BinanceFuturesClient
 from src.data_processor import DataProcessor
+from src.telegram_notifier import TelegramNotifier
 from strategies.ma_crossover import MACrossoverStrategy
 from strategies.rsi_strategy import RSIStrategy
 
@@ -13,6 +14,7 @@ class TradingBot:
         self.paper_trading = paper_trading
         self.client = BinanceFuturesClient(testnet=testnet)
         self.data_processor = DataProcessor()
+        self.telegram = TelegramNotifier()
         
         # Load strategy based on configuration
         if STRATEGY == 'simple_ma_crossover':
@@ -20,8 +22,10 @@ class TradingBot:
         elif STRATEGY == 'rsi':
             self.strategy = RSIStrategy()
         else:
-            logger.error(f"Unknown strategy: {STRATEGY}")
-            raise ValueError(f"Unknown strategy: {STRATEGY}")
+            error_msg = f"Unknown strategy: {STRATEGY}"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
+            raise ValueError(error_msg)
             
         logger.info(f"Trading bot initialized with {STRATEGY} strategy")
         if paper_trading:
@@ -56,7 +60,9 @@ class TradingBot:
         """Fetch and process market data"""
         klines = self.client.get_historical_klines(SYMBOL, interval, limit)
         if not klines:
-            logger.error("Failed to fetch klines data")
+            error_msg = "Failed to fetch klines data"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
             return None
             
         df = self.data_processor.klines_to_dataframe(klines)
@@ -71,7 +77,9 @@ class TradingBot:
             
         current_price = self.client.get_market_price(SYMBOL)
         if not current_price:
-            logger.error("Failed to get current market price")
+            error_msg = "Failed to get current market price"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
             return
             
         # If we have a position already
@@ -91,12 +99,26 @@ class TradingBot:
                     result = self.client.place_market_order(side, quantity, reduce_only=True)
                     if result:
                         logger.info(f"Successfully closed position: {result}")
+                        
+                        # Calculate PnL if available
+                        pnl = None
+                        positions = self.client.get_open_positions(SYMBOL)
+                        if positions:
+                            for pos in positions:
+                                if pos['symbol'] == SYMBOL:
+                                    pnl = float(pos['unrealizedProfit'])
+                        
+                        # Send notification
+                        self.telegram.send_trade_notification(side, SYMBOL, quantity, current_price, pnl)
+                        
                         self.current_position = 0
                         
                         # Cancel any open orders
                         self.client.cancel_all_orders()
                     else:
-                        logger.error("Failed to close position")
+                        error_msg = "Failed to close position"
+                        logger.error(error_msg)
+                        self.telegram.send_error(error_msg)
                         return
         
         # Open new position if signal is not zero
@@ -114,6 +136,9 @@ class TradingBot:
                     logger.info(f"Successfully opened position: {result}")
                     self.current_position = QUANTITY if signal > 0 else -QUANTITY
                     
+                    # Send notification
+                    self.telegram.send_trade_notification(side, SYMBOL, QUANTITY, current_price)
+                    
                     # Set stop loss and take profit
                     stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
                     take_profit_price = current_price * (1 + TAKE_PROFIT_PERCENT/100) if signal > 0 else current_price * (1 - TAKE_PROFIT_PERCENT/100)
@@ -128,7 +153,9 @@ class TradingBot:
                     if tp_result:
                         logger.info(f"Take profit set at {take_profit_price}")
                 else:
-                    logger.error("Failed to open position")
+                    error_msg = "Failed to open position"
+                    logger.error(error_msg)
+                    self.telegram.send_error(error_msg)
     
     def _paper_open_position(self, side, quantity, price):
         """Simulate opening a position in paper trading mode"""
@@ -156,6 +183,9 @@ class TradingBot:
         self.current_position = quantity if direction == 'long' else -quantity
         
         logger.info(f"Paper trading: Opened {direction} position at {price} with SL: {stop_loss}, TP: {take_profit}")
+        
+        # Send notification
+        self.telegram.send_trade_notification(side, SYMBOL, quantity, price)
     
     def _paper_close_position(self, side, quantity, price):
         """Simulate closing a position in paper trading mode"""
@@ -183,6 +213,9 @@ class TradingBot:
         logger.info(f"Paper trading: Closed {position['direction']} position at {price}. PnL: {pnl:.2f} USDT ({pnl_percent:.2f}%)")
         logger.info(f"Paper trading: New balance: {self.paper_balance:.2f} USDT")
         
+        # Send notification
+        self.telegram.send_trade_notification(side, SYMBOL, quantity, price, pnl)
+        
         # Clear positions
         self.paper_positions = []
         self.current_position = 0
@@ -199,6 +232,18 @@ class TradingBot:
                     # Generate signal
                     signal = self.strategy.generate_signal(df)
                     
+                    # Send signal notification with indicators
+                    if signal != 0:
+                        # Get last row of dataframe for indicator values
+                        last_row = df.iloc[-1]
+                        indicators = {
+                            f"SMA({SHORT_WINDOW})": round(last_row.get(f'sma_{SHORT_WINDOW}', 0), 2),
+                            f"SMA({LONG_WINDOW})": round(last_row.get(f'sma_{LONG_WINDOW}', 0), 2),
+                            f"RSI({RSI_PERIOD})": round(last_row.get(f'rsi_{RSI_PERIOD}', 0), 2),
+                            "Price": round(last_row['close'], 2)
+                        }
+                        self.telegram.send_signal_notification(STRATEGY, SYMBOL, signal, indicators)
+                    
                     # Execute trade based on signal
                     self.execute_trade(signal)
                     
@@ -208,15 +253,20 @@ class TradingBot:
                     # Log account balance
                     if self.paper_trading:
                         logger.info(f"Paper trading balance: {self.paper_balance} USDT")
+                        self.telegram.send_balance_update(self.paper_balance)
                     else:
                         balance = self.client.get_account_balance()
                         if balance:
                             logger.info(f"Account balance: {balance}")
+                            positions = self.client.get_open_positions(SYMBOL)
+                            self.telegram.send_balance_update(balance, positions)
                 
                 # Sleep until next check
                 logger.info(f"Sleeping for {check_interval} seconds")
                 time.sleep(check_interval)
                 
             except Exception as e:
-                logger.error(f"Error in trading loop: {e}")
+                error_msg = f"Error in trading loop: {e}"
+                logger.error(error_msg)
+                self.telegram.send_error(error_msg)
                 time.sleep(60)  # Sleep for a minute before retrying
