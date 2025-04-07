@@ -1,6 +1,10 @@
 import logging
 import time
-from config.config import SYMBOL, QUANTITY, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, STRATEGY
+from config.config import (
+    SYMBOL, QUANTITY, STOP_LOSS_PERCENT, TAKE_PROFIT_PERCENT, 
+    STRATEGY, SHORT_WINDOW, LONG_WINDOW, RSI_PERIOD, 
+    RSI_OVERBOUGHT, RSI_OVERSOLD
+)
 from src.binance_client import BinanceFuturesClient
 from src.data_processor import DataProcessor
 from src.telegram_notifier import TelegramNotifier
@@ -149,17 +153,17 @@ class TradingBot:
                             logger.info(f"Account balance: {balance}")
                             positions = self.client.get_open_positions(SYMBOL)
                             self.telegram.send_balance_update(balance, positions)
-                    
-                    # Sleep until next check
-                    if not force_check:
-                        logger.info(f"Sleeping for {check_interval} seconds")
-                        time.sleep(check_interval)
-                    else:
-                        logger.info("Force check completed. Exiting.")
-                        break
-                    
-                except Exception as e:
-                    error_msg = f"Error in trading loop: {e}"
-                    logger.error(error_msg)
-                    self.telegram.send_error(error_msg)
-                    time.sleep(60)  # Sleep for a minute before retrying
+                
+                # Sleep until next check
+                if not force_check:
+                    logger.info(f"Sleeping for {check_interval} seconds")
+                    time.sleep(check_interval)
+                else:
+                    logger.info("Force check completed. Exiting.")
+                    break
+                
+            except Exception as e:
+                error_msg = f"Error in trading loop: {e}"
+                logger.error(error_msg)
+                self.telegram.send_error(error_msg)
+                time.sleep(60)  # Sleep for a minute before retrying
