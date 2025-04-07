@@ -24,10 +24,19 @@ def parse_arguments():
                         help='Use Binance testnet (default: based on config)')
     parser.add_argument('--paper-trading', action='store_true', default=False,
                         help='Run in paper trading mode (no real orders)')
+    parser.add_argument('--debug', action='store_true', default=False,
+                        help='Enable debug mode with more verbose logging')
+    parser.add_argument('--force-check', action='store_true', default=False,
+                        help='Force immediate strategy check without waiting')
     return parser.parse_args()
 
 def main():
     args = parse_arguments()
+
+    # Set logging level based on debug flag
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug mode enabled")
 
     mode = "Testnet" if args.testnet else "Production"
     if args.paper_trading:
@@ -36,8 +45,8 @@ def main():
     logger.info(f"Starting Binance Futures Trading Bot in {mode} mode")
 
     try:
-        bot = TradingBot(testnet=args.testnet, paper_trading=args.paper_trading)
-        bot.run(interval=args.interval, check_interval=args.check_interval)
+        bot = TradingBot(testnet=args.testnet, paper_trading=args.paper_trading, debug=args.debug)
+        bot.run(interval=args.interval, check_interval=args.check_interval, force_check=args.force_check)
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:

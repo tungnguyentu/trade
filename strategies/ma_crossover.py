@@ -9,9 +9,10 @@ class MACrossoverStrategy:
         self.long_window = long_window
         logger.info(f"Initialized MA Crossover Strategy with windows {short_window} and {long_window}")
 
+    # Add debug logging in the generate_signal method
     def generate_signal(self, df):
         """
-        Generate trading signals based on moving average crossover
+        Generate trading signals based on MA crossover
         Returns: 1 for buy, -1 for sell, 0 for hold
         """
         if df is None or df.empty:
@@ -29,17 +30,18 @@ class MACrossoverStrategy:
             # Check for bullish crossover (short MA crosses above long MA)
             if (last_two['sma_' + str(self.short_window)].iloc[0] <= last_two['sma_' + str(self.long_window)].iloc[0] and 
                 last_two['sma_' + str(self.short_window)].iloc[1] > last_two['sma_' + str(self.long_window)].iloc[1]):
-                logger.info("Bullish crossover detected")
+                logger.info(f"Bullish crossover detected: SMA{self.short_window}={last_two['sma_' + str(self.short_window)].iloc[1]:.2f} crossed above SMA{self.long_window}={last_two['sma_' + str(self.long_window)].iloc[1]:.2f}")
                 return 1
                 
             # Check for bearish crossover (short MA crosses below long MA)
             elif (last_two['sma_' + str(self.short_window)].iloc[0] >= last_two['sma_' + str(self.long_window)].iloc[0] and 
                   last_two['sma_' + str(self.short_window)].iloc[1] < last_two['sma_' + str(self.long_window)].iloc[1]):
-                logger.info("Bearish crossover detected")
+                logger.info(f"Bearish crossover detected: SMA{self.short_window}={last_two['sma_' + str(self.short_window)].iloc[1]:.2f} crossed below SMA{self.long_window}={last_two['sma_' + str(self.long_window)].iloc[1]:.2f}")
                 return -1
                 
             # No crossover
             else:
+                logger.debug(f"No crossover: SMA{self.short_window}={last_two['sma_' + str(self.short_window)].iloc[1]:.2f}, SMA{self.long_window}={last_two['sma_' + str(self.long_window)].iloc[1]:.2f}")
                 return 0
                 
         except Exception as e:
