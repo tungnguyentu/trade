@@ -62,6 +62,157 @@ class TradingBot:
                 
         return 0
         
+    def execute_trade(self, signal):
+        """Execute trade based on signal"""
+        if signal == 0:
+            logger.info("No trading signal")
+            return
+            
+        current_price = self.client.get_market_price(SYMBOL)
+        if not current_price:
+            error_msg = "Failed to get current market price"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
+            return
+            
+        # If we have a position already
+        if self.current_position != 0:
+            # If signal is opposite to our position, close the position
+            if (self.current_position > 0 and signal < 0) or (self.current_position < 0 and signal > 0):
+                logger.info(f"Closing current position of {self.current_position} {SYMBOL}")
+                
+                side = 'SELL' if self.current_position > 0 else 'BUY'
+                quantity = abs(self.current_position)
+                
+                if self.paper_trading:
+                    # Simulate closing position in paper trading mode
+                    self._paper_close_position(side, quantity, current_price)
+                else:
+                    # Close position with market order
+                    result = self.client.place_market_order(side, quantity, reduce_only=True)
+                    if result:
+                        logger.info(f"Successfully closed position: {result}")
+                        
+                        # Calculate PnL if available
+                        pnl = None
+                        positions = self.client.get_open_positions(SYMBOL)
+                        if positions:
+                            for pos in positions:
+                                if pos['symbol'] == SYMBOL:
+                                    pnl = float(pos['unrealizedProfit'])
+                        
+                        # Send notification
+                        self.telegram.send_trade_notification(side, SYMBOL, quantity, current_price, pnl)
+                        
+                        self.current_position = 0
+                        
+                        # Cancel any open orders
+                        self.client.cancel_all_orders()
+                    else:
+                        error_msg = "Failed to close position"
+                        logger.error(error_msg)
+                        self.telegram.send_error(error_msg)
+                        return
+        
+        # Open new position if signal is not zero
+        if signal != 0:
+            side = 'BUY' if signal > 0 else 'SELL'
+            logger.info(f"Opening new {side} position of {QUANTITY} {SYMBOL}")
+            
+            if self.paper_trading:
+                # Simulate opening position in paper trading mode
+                self._paper_open_position(side, QUANTITY, current_price)
+            else:
+                # Place market order
+                result = self.client.place_market_order(side, QUANTITY)
+                if result:
+                    logger.info(f"Successfully opened position: {result}")
+                    self.current_position = QUANTITY if signal > 0 else -QUANTITY
+                    
+                    # Send notification
+                    self.telegram.send_trade_notification(side, SYMBOL, QUANTITY, current_price)
+                    
+                    # Set stop loss and take profit
+                    stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
+                    take_profit_price = current_price * (1 + TAKE_PROFIT_PERCENT/100) if signal > 0 else current_price * (1 - TAKE_PROFIT_PERCENT/100)
+                    
+                    # Place stop loss
+                    sl_result = self.client.place_stop_loss(side, QUANTITY, stop_loss_price)
+                    if sl_result:
+                        logger.info(f"Stop loss set at {stop_loss_price}")
+                    
+                    # Place take profit
+                    tp_result = self.client.place_take_profit(side, QUANTITY, take_profit_price)
+                    if tp_result:
+                        logger.info(f"Take profit set at {take_profit_price}")
+                else:
+                    error_msg = "Failed to open position"
+                    logger.error(error_msg)
+                    self.telegram.send_error(error_msg)
+    
+    def _paper_open_position(self, side, quantity, price):
+        """Simulate opening a position in paper trading mode"""
+        direction = 'long' if side == 'BUY' else 'short'
+        
+        # Calculate stop loss and take profit levels
+        if direction == 'long':
+            stop_loss = price * (1 - STOP_LOSS_PERCENT/100)
+            take_profit = price * (1 + TAKE_PROFIT_PERCENT/100)
+        else:
+            stop_loss = price * (1 + STOP_LOSS_PERCENT/100)
+            take_profit = price * (1 - TAKE_PROFIT_PERCENT/100)
+        
+        # Create position
+        position = {
+            'direction': direction,
+            'size': quantity,
+            'entry_price': price,
+            'entry_time': time.time(),
+            'stop_loss': stop_loss,
+            'take_profit': take_profit
+        }
+        
+        self.paper_positions.append(position)
+        self.current_position = quantity if direction == 'long' else -quantity
+        
+        logger.info(f"Paper trading: Opened {direction} position at {price} with SL: {stop_loss}, TP: {take_profit}")
+        
+        # Send notification
+        self.telegram.send_trade_notification(side, SYMBOL, quantity, price)
+    
+    def _paper_close_position(self, side, quantity, price):
+        """Simulate closing a position in paper trading mode"""
+        if not self.paper_positions:
+            logger.warning("No paper trading positions to close")
+            return
+            
+        position = self.paper_positions[0]  # We only support one position at a time
+        
+        # Calculate PnL
+        if position['direction'] == 'long':
+            pnl_percent = (price / position['entry_price'] - 1) * 100
+            pnl = position['size'] * (price - position['entry_price'])
+        else:
+            pnl_percent = (1 - price / position['entry_price']) * 100
+            pnl = position['size'] * (position['entry_price'] - price)
+        
+        # Subtract commission (0.04% for Binance futures)
+        commission = position['size'] * price * 0.0004 * 2  # Entry and exit
+        pnl -= commission
+        
+        # Update paper balance
+        self.paper_balance += pnl
+        
+        logger.info(f"Paper trading: Closed {position['direction']} position at {price}. PnL: {pnl:.2f} USDT ({pnl_percent:.2f}%)")
+        logger.info(f"Paper trading: New balance: {self.paper_balance:.2f} USDT")
+        
+        # Send notification
+        self.telegram.send_trade_notification(side, SYMBOL, quantity, price, pnl)
+        
+        # Clear positions
+        self.paper_positions = []
+        self.current_position = 0
+        
     # In the fetch_and_process_data method, add debug logging
     def fetch_and_process_data(self, interval='1h', limit=100):
         """Fetch and process market data"""
