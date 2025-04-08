@@ -75,6 +75,21 @@ class TradingBot:
             self.telegram.send_error(error_msg)
             return
             
+        # Calculate notional value (price × quantity)
+        notional_value = current_price * QUANTITY
+        
+        # Check if notional value meets minimum requirement (100 USDT for Binance Futures)
+        if notional_value < 100 and not self.paper_trading:
+            # Calculate minimum quantity needed
+            min_quantity = 100 / current_price
+            # Round up to meet precision requirements (usually 3 decimal places for BTC)
+            adjusted_quantity = round(min_quantity * 1.01, 3)  # Add 1% buffer
+            
+            logger.info(f"Adjusting order quantity from {QUANTITY} to {adjusted_quantity} to meet minimum notional value (100 USDT)")
+            actual_quantity = adjusted_quantity
+        else:
+            actual_quantity = QUANTITY
+            
         # If we have a position already
         if self.current_position != 0:
             # If signal is opposite to our position, close the position
@@ -117,32 +132,32 @@ class TradingBot:
         # Open new position if signal is not zero
         if signal != 0:
             side = 'BUY' if signal > 0 else 'SELL'
-            logger.info(f"Opening new {side} position of {QUANTITY} {SYMBOL}")
+            logger.info(f"Opening new {side} position of {actual_quantity} {SYMBOL}")
             
             if self.paper_trading:
                 # Simulate opening position in paper trading mode
-                self._paper_open_position(side, QUANTITY, current_price)
+                self._paper_open_position(side, actual_quantity, current_price)
             else:
                 # Place market order
-                result = self.client.place_market_order(side, QUANTITY)
+                result = self.client.place_market_order(side, actual_quantity)
                 if result:
                     logger.info(f"Successfully opened position: {result}")
-                    self.current_position = QUANTITY if signal > 0 else -QUANTITY
+                    self.current_position = actual_quantity if signal > 0 else -actual_quantity
                     
                     # Send notification
-                    self.telegram.send_trade_notification(side, SYMBOL, QUANTITY, current_price)
+                    self.telegram.send_trade_notification(side, SYMBOL, actual_quantity, current_price)
                     
                     # Set stop loss and take profit
                     stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
                     take_profit_price = current_price * (1 + TAKE_PROFIT_PERCENT/100) if signal > 0 else current_price * (1 - TAKE_PROFIT_PERCENT/100)
                     
                     # Place stop loss
-                    sl_result = self.client.place_stop_loss(side, QUANTITY, stop_loss_price)
+                    sl_result = self.client.place_stop_loss(side, actual_quantity, stop_loss_price)
                     if sl_result:
                         logger.info(f"Stop loss set at {stop_loss_price}")
                     
                     # Place take profit
-                    tp_result = self.client.place_take_profit(side, QUANTITY, take_profit_price)
+                    tp_result = self.client.place_take_profit(side, actual_quantity, take_profit_price)
                     if tp_result:
                         logger.info(f"Take profit set at {take_profit_price}")
                 else:
