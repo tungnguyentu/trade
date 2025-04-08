@@ -80,8 +80,11 @@ class TradingBot:
         
         # Check if notional value meets minimum requirement (100 USDT for Binance Futures)
         if notional_value < 100 and not self.paper_trading:
-            # Calculate minimum quantity needed with a 5% buffer to ensure we're above the minimum
-            min_quantity = (100 * 1.05) / current_price
+            # Calculate minimum quantity needed
+            min_quantity = 100 / current_price
+            
+            # Add a 20% buffer to ensure we're well above the minimum
+            min_quantity = min_quantity * 1.2
             
             # Get the precision for the symbol (usually 3 decimal places for BTC)
             precision = 3  # Default precision for BTC
@@ -89,11 +92,11 @@ class TradingBot:
             # Round to the appropriate precision
             adjusted_quantity = round(min_quantity, precision)
             
-            # Double-check that the adjusted quantity meets the minimum notional value
-            adjusted_notional = adjusted_quantity * current_price
-            if adjusted_notional < 100:
-                # If still below minimum, increase slightly and round again
-                adjusted_quantity = round((100 * 1.1) / current_price, precision)
+            # Ensure the adjusted quantity meets the minimum notional value
+            while adjusted_quantity * current_price < 100:
+                # If still below minimum, increase by 10%
+                min_quantity = min_quantity * 1.1
+                adjusted_quantity = round(min_quantity, precision)
             
             logger.info(f"Adjusting order quantity from {QUANTITY} to {adjusted_quantity} to meet minimum notional value (100 USDT)")
             logger.info(f"Estimated notional value: {adjusted_quantity * current_price:.2f} USDT")
