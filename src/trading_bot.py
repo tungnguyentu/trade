@@ -165,15 +165,25 @@ class TradingBot:
                     stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
                     take_profit_price = current_price * (1 + TAKE_PROFIT_PERCENT/100) if signal > 0 else current_price * (1 - TAKE_PROFIT_PERCENT/100)
                     
+                    # Round prices to the correct precision for the asset
+                    # For BTCUSDT, price precision is typically 1 decimal place
+                    price_precision = 1  # Default for BTCUSDT
+                    stop_loss_price = round(stop_loss_price, price_precision)
+                    take_profit_price = round(take_profit_price, price_precision)
+                    
                     # Place stop loss
                     sl_result = self.client.place_stop_loss(side, actual_quantity, stop_loss_price)
                     if sl_result:
                         logger.info(f"Stop loss set at {stop_loss_price}")
+                    else:
+                        logger.warning(f"Failed to set stop loss at {stop_loss_price}")
                     
                     # Place take profit
                     tp_result = self.client.place_take_profit(side, actual_quantity, take_profit_price)
                     if tp_result:
                         logger.info(f"Take profit set at {take_profit_price}")
+                    else:
+                        logger.warning(f"Failed to set take profit at {take_profit_price}")
                 else:
                     error_msg = "Failed to open position"
                     logger.error(error_msg)
