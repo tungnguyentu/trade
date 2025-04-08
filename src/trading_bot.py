@@ -22,6 +22,11 @@ class TradingBot:
         self.data_processor = DataProcessor()
         self.telegram = TelegramNotifier()
         
+        # Add daily profit tracking
+        self.daily_profit = 0.0
+        self.profit_target = 10.0  # $10 daily profit target
+        self.last_profit_reset = time.time()
+        
         # Load strategy based on configuration
         if STRATEGY == 'simple_ma_crossover':
             self.strategy = MACrossoverStrategy()
@@ -67,6 +72,19 @@ class TradingBot:
         if signal == 0:
             logger.info("No trading signal")
             return
+            
+        # Check if daily profit target has been reached
+        if self.daily_profit >= self.profit_target:
+            logger.info(f"Daily profit target of ${self.profit_target} reached (${self.daily_profit:.2f}). Skipping trade.")
+            self.telegram.send_message(f"🎯 Daily profit target reached: ${self.daily_profit:.2f}. Skipping new trades until tomorrow.")
+            return
+            
+        # Reset daily profit if a day has passed
+        current_time = time.time()
+        if current_time - self.last_profit_reset > 86400:  # 24 hours in seconds
+            logger.info(f"Resetting daily profit from ${self.daily_profit:.2f} to $0.00")
+            self.daily_profit = 0.0
+            self.last_profit_reset = current_time
             
         current_price = self.client.get_market_price(SYMBOL)
         if not current_price:
@@ -115,12 +133,17 @@ class TradingBot:
                 
                 if self.paper_trading:
                     # Simulate closing position in paper trading mode
-                    self._paper_close_position(side, quantity, current_price)
+                    pnl = self._paper_close_position(side, quantity, current_price)
+                    self.daily_profit += pnl if pnl else 0
                 else:
-                    # Close position with market order
-                    result = self.client.place_market_order(side, quantity, reduce_only=True)
+                    # Set limit price slightly better than market for faster execution
+                    limit_price = current_price * 1.001 if side == 'BUY' else current_price * 0.999
+                    limit_price = round(limit_price, 1)  # Round to appropriate precision
+                    
+                    # Close position with limit order
+                    result = self.client.place_limit_order(side, quantity, limit_price, reduce_only=True)
                     if result:
-                        logger.info(f"Successfully closed position: {result}")
+                        logger.info(f"Successfully placed limit order to close position: {result}")
                         
                         # Calculate PnL if available
                         pnl = None
@@ -129,9 +152,13 @@ class TradingBot:
                             for pos in positions:
                                 if pos['symbol'] == SYMBOL:
                                     pnl = float(pos['unrealizedProfit'])
+                                    # Add to daily profit
+                                    if pnl:
+                                        self.daily_profit += pnl
+                                        logger.info(f"Added ${pnl:.2f} to daily profit. Total: ${self.daily_profit:.2f}")
                         
                         # Send notification
-                        self.telegram.send_trade_notification(side, SYMBOL, quantity, current_price, pnl)
+                        self.telegram.send_trade_notification(side, SYMBOL, quantity, limit_price, pnl)
                         
                         self.current_position = 0
                         
@@ -152,14 +179,18 @@ class TradingBot:
                 # Simulate opening position in paper trading mode
                 self._paper_open_position(side, actual_quantity, current_price)
             else:
-                # Place market order
-                result = self.client.place_market_order(side, actual_quantity)
+                # Set limit price slightly better than market for higher chance of execution
+                limit_price = current_price * 0.999 if side == 'BUY' else current_price * 1.001
+                limit_price = round(limit_price, 1)  # Round to appropriate precision
+                
+                # Place limit order
+                result = self.client.place_limit_order(side, actual_quantity, limit_price)
                 if result:
-                    logger.info(f"Successfully opened position: {result}")
+                    logger.info(f"Successfully placed limit order to open position: {result}")
                     self.current_position = actual_quantity if signal > 0 else -actual_quantity
                     
                     # Send notification
-                    self.telegram.send_trade_notification(side, SYMBOL, actual_quantity, current_price)
+                    self.telegram.send_trade_notification(side, SYMBOL, actual_quantity, limit_price)
                     
                     # Set stop loss and take profit
                     stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
@@ -223,7 +254,7 @@ class TradingBot:
         """Simulate closing a position in paper trading mode"""
         if not self.paper_positions:
             logger.warning("No paper trading positions to close")
-            return
+            return 0
             
         position = self.paper_positions[0]  # We only support one position at a time
         
@@ -244,6 +275,7 @@ class TradingBot:
         
         logger.info(f"Paper trading: Closed {position['direction']} position at {price}. PnL: {pnl:.2f} USDT ({pnl_percent:.2f}%)")
         logger.info(f"Paper trading: New balance: {self.paper_balance:.2f} USDT")
+        logger.info(f"Daily profit: ${self.daily_profit:.2f} / ${self.profit_target:.2f} target")
         
         # Send notification
         self.telegram.send_trade_notification(side, SYMBOL, quantity, price, pnl)
@@ -251,6 +283,8 @@ class TradingBot:
         # Clear positions
         self.paper_positions = []
         self.current_position = 0
+        
+        return pnl
         
     # In the fetch_and_process_data method, add debug logging
     def fetch_and_process_data(self, interval='1h', limit=100):

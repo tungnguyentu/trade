@@ -101,21 +101,24 @@ class BinanceFuturesClient:
             logger.error(f"Error placing market order: {e}")
             return None
 
-    def place_limit_order(self, side, quantity, price, symbol=SYMBOL, reduce_only=False):
+    def place_limit_order(self, side, quantity, price, reduce_only=False):
         """Place a limit order"""
         try:
+            logger.info(f"Placing {side} limit order for {quantity} {self.symbol} at {price}")
+            
             order = self.client.futures_create_order(
-                symbol=symbol,
-                side=side,  # 'BUY' or 'SELL'
+                symbol=self.symbol,
+                side=side,
                 type='LIMIT',
                 timeInForce='GTC',  # Good Till Cancelled
                 quantity=quantity,
                 price=price,
                 reduceOnly=reduce_only
             )
-            logger.info(f"Placed {side} limit order for {quantity} {symbol} at {price}: {order['orderId']}")
+            
+            logger.info(f"Placed {side} limit order for {quantity} {self.symbol}: {order['orderId']}")
             return order
-        except BinanceAPIException as e:
+        except Exception as e:
             logger.error(f"Error placing limit order: {e}")
             return None
 
