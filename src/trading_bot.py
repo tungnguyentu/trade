@@ -26,6 +26,8 @@ class TradingBot:
         self.daily_profit = 0.0
         self.profit_target = 10.0  # $10 daily profit target
         self.last_profit_reset = time.time()
+        self.check_profit_interval = 60  # Check profit every 60 seconds
+        self.last_profit_check = 0
         
         # Load strategy based on configuration
         if STRATEGY == 'simple_ma_crossover':
@@ -322,8 +324,12 @@ class TradingBot:
         
         while True:
             try:
+                # Check if profit target is reached
+                self.check_profit_target()
+                
                 # Fetch and process data
                 df = self.fetch_and_process_data(interval)
+                
                 if df is not None:
                     # Generate signal
                     signal = self.strategy.generate_signal(df)
@@ -391,3 +397,83 @@ class TradingBot:
                 logger.error(error_msg)
                 self.telegram.send_error(error_msg)
                 time.sleep(60)  # Sleep for a minute before retrying
+
+    def check_profit_target(self):
+        """Check if unrealized PnL meets or exceeds profit target and close positions if needed"""
+        # Skip if no position or already checked recently
+        if self.current_position == 0 or (time.time() - self.last_profit_check < self.check_profit_interval):
+            return
+            
+        self.last_profit_check = time.time()
+        
+        # Get current unrealized PnL
+        unrealized_pnl = 0
+        
+        if self.paper_trading:
+            if not self.paper_positions:
+                return
+                
+            position = self.paper_positions[0]
+            current_price = self.client.get_market_price(SYMBOL)
+            
+            if not current_price:
+                return
+                
+            # Calculate unrealized PnL
+            if position['direction'] == 'long':
+                unrealized_pnl = position['size'] * (current_price - position['entry_price'])
+            else:
+                unrealized_pnl = position['size'] * (position['entry_price'] - current_price)
+                
+            # Subtract commission (0.04% for Binance futures)
+            commission = position['size'] * current_price * 0.0004
+            unrealized_pnl -= commission
+        else:
+            positions = self.client.get_open_positions(SYMBOL)
+            if not positions:
+                return
+                
+            for position in positions:
+                if position['symbol'] == SYMBOL:
+                    unrealized_pnl = float(position['unrealizedProfit'])
+                    break
+        
+        # Check if unrealized PnL plus daily profit meets or exceeds target
+        total_profit = self.daily_profit + unrealized_pnl
+        
+        if total_profit >= self.profit_target:
+            logger.info(f"Profit target reached! Unrealized PnL: ${unrealized_pnl:.2f}, Daily profit: ${self.daily_profit:.2f}, Total: ${total_profit:.2f}")
+            logger.info(f"Closing position to secure profit target of ${self.profit_target:.2f}")
+            
+            # Close position
+            side = 'SELL' if self.current_position > 0 else 'BUY'
+            quantity = abs(self.current_position)
+            
+            if self.paper_trading:
+                current_price = self.client.get_market_price(SYMBOL)
+                if current_price:
+                    pnl = self._paper_close_position(side, quantity, current_price)
+                    self.daily_profit += pnl if pnl else 0
+                    self.telegram.send_message(f"🎯 Profit target reached! Closed position with ${pnl:.2f} profit. Daily total: ${self.daily_profit:.2f}")
+            else:
+                current_price = self.client.get_market_price(SYMBOL)
+                if not current_price:
+                    return
+                    
+                # Use market order for immediate execution when profit target is reached
+                result = self.client.place_market_order(side, quantity, reduce_only=True)
+                if result:
+                    logger.info(f"Successfully closed position to secure profit: {result}")
+                    
+                    # Add unrealized PnL to daily profit
+                    self.daily_profit += unrealized_pnl
+                    logger.info(f"Added ${unrealized_pnl:.2f} to daily profit. Total: ${self.daily_profit:.2f}")
+                    
+                    # Send notification
+                    self.telegram.send_trade_notification(side, SYMBOL, quantity, current_price, unrealized_pnl)
+                    self.telegram.send_message(f"🎯 Profit target reached! Closed position with ${unrealized_pnl:.2f} profit. Daily total: ${self.daily_profit:.2f}")
+                    
+                    self.current_position = 0
+                    
+                    # Cancel any open orders
+                    self.client.cancel_all_orders()
