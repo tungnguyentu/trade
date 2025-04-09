@@ -429,14 +429,36 @@ class TradingBot:
             commission = position['size'] * current_price * 0.0004
             unrealized_pnl -= commission
         else:
+            # Get position information from Binance
             positions = self.client.get_open_positions(SYMBOL)
             if not positions:
                 return
                 
             for position in positions:
                 if position['symbol'] == SYMBOL:
-                    unrealized_pnl = float(position['unrealizedProfit'])
+                    # Check if unrealizedProfit exists in the position data
+                    if 'unRealizedProfit' in position:
+                        unrealized_pnl = float(position['unRealizedProfit'])
+                    elif 'unrealizedProfit' in position:
+                        unrealized_pnl = float(position['unrealizedProfit'])
+                    else:
+                        # If unrealizedProfit is not available, calculate it manually
+                        entry_price = float(position.get('entryPrice', 0))
+                        position_amt = float(position.get('positionAmt', 0))
+                        current_price = self.client.get_market_price(SYMBOL)
+                        
+                        if entry_price > 0 and position_amt != 0 and current_price:
+                            if position_amt > 0:  # Long position
+                                unrealized_pnl = position_amt * (current_price - entry_price)
+                            else:  # Short position
+                                unrealized_pnl = abs(position_amt) * (entry_price - current_price)
+                                
+                            # Subtract estimated fees
+                            unrealized_pnl -= abs(position_amt) * current_price * 0.0004
                     break
+        
+        # Log the unrealized PnL for debugging
+        logger.info(f"Current unrealized PnL: ${unrealized_pnl:.2f}, Daily profit: ${self.daily_profit:.2f}")
         
         # Check if unrealized PnL plus daily profit meets or exceeds target
         total_profit = self.daily_profit + unrealized_pnl
