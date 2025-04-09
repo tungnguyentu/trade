@@ -11,6 +11,8 @@ A Python-based trading bot for Binance Futures markets with customizable strateg
 - Configurable trading parameters
 - Backtesting functionality
 - Paper trading mode
+- Daily profit target setting
+- Limit order execution for better entry/exit prices
 
 ## Installation
 

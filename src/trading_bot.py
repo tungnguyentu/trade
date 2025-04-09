@@ -141,7 +141,7 @@ class TradingBot:
                     limit_price = round(limit_price, 1)  # Round to appropriate precision
                     
                     # Close position with limit order
-                    result = self.client.place_limit_order(side, quantity, limit_price, reduce_only=True)
+                    result = self.client.place_limit_order(SYMBOL, side, quantity, limit_price, reduce_only=True)
                     if result:
                         logger.info(f"Successfully placed limit order to close position: {result}")
                         
@@ -184,7 +184,7 @@ class TradingBot:
                 limit_price = round(limit_price, 1)  # Round to appropriate precision
                 
                 # Place limit order
-                result = self.client.place_limit_order(side, actual_quantity, limit_price)
+                result = self.client.place_limit_order(SYMBOL, side, actual_quantity, limit_price)
                 if result:
                     logger.info(f"Successfully placed limit order to open position: {result}")
                     self.current_position = actual_quantity if signal > 0 else -actual_quantity
