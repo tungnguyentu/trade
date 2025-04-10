@@ -75,18 +75,42 @@ class TradingBot:
             logger.info("No trading signal")
             return
             
-        # Check if daily profit target has been reached
-        if self.daily_profit >= self.profit_target:
-            logger.info(f"Daily profit target of ${self.profit_target} reached (${self.daily_profit:.2f}). Skipping trade.")
-            self.telegram.send_message(f"🎯 Daily profit target reached: ${self.daily_profit:.2f}. Skipping new trades until tomorrow.")
+        # Get exchange info for the symbol to determine correct precision
+        exchange_info = self.client.get_exchange_info(SYMBOL)
+        if not exchange_info:
+            error_msg = f"Failed to get exchange info for {SYMBOL}"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
             return
             
-        # Reset daily profit if a day has passed
-        current_time = time.time()
-        if current_time - self.last_profit_reset > 86400:  # 24 hours in seconds
-            logger.info(f"Resetting daily profit from ${self.daily_profit:.2f} to $0.00")
-            self.daily_profit = 0.0
-            self.last_profit_reset = current_time
+        # Extract precision information from exchange info
+        price_precision = 0
+        quantity_precision = 0
+        min_qty = 0
+        
+        # Find price filter
+        for filter in exchange_info.get('filters', []):
+            if filter.get('filterType') == 'PRICE_FILTER':
+                # Calculate price precision from tick size
+                tick_size = float(filter.get('tickSize', '0.00010'))
+                price_precision = len(str(tick_size).split('.')[-1])
+                # If tick size ends with zeros, adjust precision
+                price_precision = len(tick_size.rstrip('0').split('.')[-1])
+                
+            elif filter.get('filterType') == 'LOT_SIZE':
+                # Get minimum quantity
+                min_qty = float(filter.get('minQty', '1'))
+                # Calculate quantity precision from step size
+                step_size = filter.get('stepSize', '1')
+                if '.' in step_size:
+                    quantity_precision = len(step_size.split('.')[-1])
+                    # If step size ends with zeros, adjust precision
+                    quantity_precision = len(step_size.rstrip('0').split('.')[-1])
+                else:
+                    quantity_precision = 0
+        
+        logger.info(f"Using price precision: {price_precision}, quantity precision: {quantity_precision}")
+        logger.info(f"Minimum quantity: {min_qty}")
             
         current_price = self.client.get_market_price(SYMBOL)
         if not current_price:
@@ -95,35 +119,45 @@ class TradingBot:
             self.telegram.send_error(error_msg)
             return
             
+        # Determine appropriate quantity based on exchange requirements
+        # Start with configured quantity
+        actual_quantity = QUANTITY
+        
+        # Ensure quantity meets minimum requirement
+        if actual_quantity < min_qty:
+            actual_quantity = min_qty
+            logger.info(f"Adjusting quantity to minimum allowed: {actual_quantity}")
+        
+        # Round to appropriate precision
+        actual_quantity = round(actual_quantity, quantity_precision)
+        
         # Calculate notional value (price × quantity)
-        notional_value = current_price * QUANTITY
+        notional_value = current_price * actual_quantity
         
         # Check if notional value meets minimum requirement (100 USDT for Binance Futures)
         if notional_value < 100 and not self.paper_trading:
             # Calculate minimum quantity needed
-            min_quantity = 100 / current_price
+            min_notional_qty = 100 / current_price
             
             # Add a 20% buffer to ensure we're well above the minimum
-            min_quantity = min_quantity * 1.2
-            
-            # Get the precision for the symbol (usually 3 decimal places for BTC)
-            precision = 3  # Default precision for BTC
+            min_notional_qty = min_notional_qty * 1.2
             
             # Round to the appropriate precision
-            adjusted_quantity = round(min_quantity, precision)
+            adjusted_quantity = round(min_notional_qty, quantity_precision)
             
             # Ensure the adjusted quantity meets the minimum notional value
             while adjusted_quantity * current_price < 100:
                 # If still below minimum, increase by 10%
-                min_quantity = min_quantity * 1.1
-                adjusted_quantity = round(min_quantity, precision)
+                min_notional_qty = min_notional_qty * 1.1
+                adjusted_quantity = round(min_notional_qty, quantity_precision)
             
-            logger.info(f"Adjusting order quantity from {QUANTITY} to {adjusted_quantity} to meet minimum notional value (100 USDT)")
+            logger.info(f"Adjusting order quantity from {actual_quantity} to {adjusted_quantity} to meet minimum notional value (100 USDT)")
             logger.info(f"Estimated notional value: {adjusted_quantity * current_price:.2f} USDT")
             actual_quantity = adjusted_quantity
-        else:
-            actual_quantity = QUANTITY
-            
+        
+        # Rest of the method remains the same, but make sure to use price_precision for limit prices
+        # and quantity_precision for quantities
+        
         # If we have a position already
         if self.current_position != 0:
             # If signal is opposite to our position, close the position
@@ -140,7 +174,7 @@ class TradingBot:
                 else:
                     # Set limit price slightly better than market for faster execution
                     limit_price = current_price * 1.001 if side == 'BUY' else current_price * 0.999
-                    limit_price = round(limit_price, 1)  # Round to appropriate precision
+                    limit_price = round(limit_price, price_precision)
                     
                     # Close position with limit order
                     result = self.client.place_limit_order(SYMBOL, side, quantity, limit_price, reduce_only=True)
@@ -181,9 +215,9 @@ class TradingBot:
                 # Simulate opening position in paper trading mode
                 self._paper_open_position(side, actual_quantity, current_price)
             else:
-                # Set limit price slightly better than market for higher chance of execution
+                # Set limit price with correct precision
                 limit_price = current_price * 0.999 if side == 'BUY' else current_price * 1.001
-                limit_price = round(limit_price, 1)  # Round to appropriate precision
+                limit_price = round(limit_price, price_precision)
                 
                 # Place limit order
                 result = self.client.place_limit_order(SYMBOL, side, actual_quantity, limit_price)
@@ -198,9 +232,6 @@ class TradingBot:
                     stop_loss_price = current_price * (1 - STOP_LOSS_PERCENT/100) if signal > 0 else current_price * (1 + STOP_LOSS_PERCENT/100)
                     take_profit_price = current_price * (1 + TAKE_PROFIT_PERCENT/100) if signal > 0 else current_price * (1 - TAKE_PROFIT_PERCENT/100)
                     
-                    # Round prices to the correct precision for the asset
-                    # For BTCUSDT, price precision is typically 1 decimal place
-                    price_precision = 1  # Default for BTCUSDT
                     stop_loss_price = round(stop_loss_price, price_precision)
                     take_profit_price = round(take_profit_price, price_precision)
                     
