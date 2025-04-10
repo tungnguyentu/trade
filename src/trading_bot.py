@@ -139,6 +139,22 @@ class TradingBot:
                 logger.error(error_msg)
                 self.telegram.send_error(error_msg)
                 return
+            
+            # Make sure account_balance is a float, not a dictionary
+            if isinstance(account_balance, dict) and 'balance' in account_balance:
+                account_balance = float(account_balance['balance'])
+            elif isinstance(account_balance, dict) and 'totalWalletBalance' in account_balance:
+                account_balance = float(account_balance['totalWalletBalance'])
+            elif isinstance(account_balance, dict):
+                # Try to find any numeric value in the dictionary
+                for key, value in account_balance.items():
+                    if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit()):
+                        account_balance = float(value)
+                        logger.info(f"Using {key} as account balance: {account_balance}")
+                        break
+                else:
+                    logger.error(f"Could not extract balance from account data: {account_balance}")
+                    return
         
         # Calculate optimal quantity based on risk management
         # Use 2% of account balance per trade as a default risk
