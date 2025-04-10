@@ -401,53 +401,91 @@ class TradingBot:
                     positions = self.client.get_open_positions(SYMBOL)
                     if positions:
                         logger.info(f"Current positions: {positions}")
-                    
-                    # Try with a much smaller quantity first
-                    small_qty = min_qty  # Start with minimum quantity
-                    logger.info(f"Trying with minimum quantity: {small_qty}")
-                    
-                    # Try market order instead of limit order
-                    market_result = self.client.place_market_order(side, small_qty)
-                    if market_result:
-                        logger.info(f"Successfully placed market order with minimum quantity: {market_result}")
-                        self.current_position = small_qty if signal > 0 else -small_qty
-                        self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
                         
-                        # Set stop loss and take profit for the small position
-                        sl_result = self.client.place_stop_loss(side, small_qty, stop_loss_price)
-                        if sl_result:
-                            logger.info(f"Stop loss set at {stop_loss_price}")
-                        
-                        tp_result = self.client.place_take_profit(side, small_qty, take_profit_price)
-                        if tp_result:
-                            logger.info(f"Take profit set at {take_profit_price}")
-                    else:
-                        logger.error(f"Market order also failed with minimum quantity")
-                        
-                        # Check if we need to adjust leverage
-                        current_leverage = self.client.get_leverage(SYMBOL)
-                        logger.info(f"Current leverage: {current_leverage}x")
-                        
-                        # If leverage is high, try with a lower leverage
-                        if current_leverage > 5:
-                            try:
-                                new_leverage = 5  # Try with 5x leverage
-                                self.client.client.futures_change_leverage(symbol=SYMBOL, leverage=new_leverage)
-                                logger.info(f"Reduced leverage to {new_leverage}x for {SYMBOL}")
+                        # Check for negative isolated margin which can cause "Margin is insufficient" errors
+                        # Check for negative isolated margin which can cause "Margin is insufficient" errors
+                        if not self.paper_trading:
+                            positions = self.client.get_open_positions(SYMBOL)
+                            for position in positions:
+                                if position.get('symbol') == SYMBOL:
+                                    isolated_margin = float(position.get('isolatedMargin', 0))
+                                    isolated_wallet = float(position.get('isolatedWallet', 0))
+                                    
+                                    if isolated_margin < 0 or isolated_wallet < 0:
+                                        logger.warning(f"Detected negative isolated margin: {isolated_margin} or wallet: {isolated_wallet}")
+                                        logger.info("Attempting to reset isolated margin before placing order")
+                                        self.reset_margin_type(SYMBOL)
+                                        break
                                 
-                                # Try again with the new leverage
-                                retry_result = self.client.place_market_order(side, small_qty)
-                                if retry_result:
-                                    logger.info(f"Successfully placed market order with reduced leverage: {retry_result}")
-                                    self.current_position = small_qty if signal > 0 else -small_qty
-                                    self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
-                                else:
-                                    self.telegram.send_error(f"Failed to open position even with reduced leverage and minimum quantity")
-                            except Exception as e:
-                                logger.error(f"Error adjusting leverage: {e}")
-                                self.telegram.send_error(f"Failed to open position. Error: {e}")
+                                    # Try to reset the margin by switching to cross margin and back
+                                    try:
+                                        # Switch to cross margin
+                                        self.client.client.futures_change_margin_type(symbol=SYMBOL, marginType='CROSSED')
+                                        logger.info(f"Switched to CROSSED margin for {SYMBOL}")
+                                        time.sleep(1)
+                                        
+                                        # Switch back to isolated margin
+                                        self.client.client.futures_change_margin_type(symbol=SYMBOL, marginType='ISOLATED')
+                                        logger.info(f"Switched back to ISOLATED margin for {SYMBOL}")
+                                        time.sleep(1)
+                                        
+                                        # Try again with minimum quantity
+                                        logger.info("Trying again after resetting margin type")
+                                        retry_result = self.client.place_market_order(side, min_qty)
+                                        if retry_result:
+                                            logger.info(f"Successfully placed market order after resetting margin: {retry_result}")
+                                            self.current_position = min_qty if signal > 0 else -min_qty
+                                            self.telegram.send_trade_notification(side, SYMBOL, min_qty, current_price)
+                                            break
+                                    except Exception as e:
+                                        logger.error(f"Error resetting margin type: {e}")
+                        
+                        # Try with a much smaller quantity first
+                        small_qty = min_qty  # Start with minimum quantity
+                        logger.info(f"Trying with minimum quantity: {small_qty}")
+                        
+                        # Try market order instead of limit order
+                        market_result = self.client.place_market_order(side, small_qty)
+                        if market_result:
+                            logger.info(f"Successfully placed market order with minimum quantity: {market_result}")
+                            self.current_position = small_qty if signal > 0 else -small_qty
+                            self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
+                            
+                            # Set stop loss and take profit for the small position
+                            sl_result = self.client.place_stop_loss(side, small_qty, stop_loss_price)
+                            if sl_result:
+                                logger.info(f"Stop loss set at {stop_loss_price}")
+                            
+                            tp_result = self.client.place_take_profit(side, small_qty, take_profit_price)
+                            if tp_result:
+                                logger.info(f"Take profit set at {take_profit_price}")
                         else:
-                            self.telegram.send_error(f"Failed to open position with minimum quantity. Margin is insufficient.")
+                            logger.error(f"Market order also failed with minimum quantity")
+                            
+                            # Check if we need to adjust leverage
+                            current_leverage = self.client.get_leverage(SYMBOL)
+                            logger.info(f"Current leverage: {current_leverage}x")
+                            
+                            # If leverage is high, try with a lower leverage
+                            if current_leverage > 5:
+                                try:
+                                    new_leverage = 5  # Try with 5x leverage
+                                    self.client.client.futures_change_leverage(symbol=SYMBOL, leverage=new_leverage)
+                                    logger.info(f"Reduced leverage to {new_leverage}x for {SYMBOL}")
+                                    
+                                    # Try again with the new leverage
+                                    retry_result = self.client.place_market_order(side, small_qty)
+                                    if retry_result:
+                                        logger.info(f"Successfully placed market order with reduced leverage: {retry_result}")
+                                        self.current_position = small_qty if signal > 0 else -small_qty
+                                        self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
+                                    else:
+                                        self.telegram.send_error(f"Failed to open position even with reduced leverage and minimum quantity")
+                                except Exception as e:
+                                    logger.error(f"Error adjusting leverage: {e}")
+                                    self.telegram.send_error(f"Failed to open position. Error: {e}")
+                            else:
+                                self.telegram.send_error(f"Failed to open position with minimum quantity. Margin is insufficient.")
     
     def _paper_open_position(self, side, quantity, price):
         """Simulate opening a position in paper trading mode"""
@@ -753,3 +791,34 @@ class TradingBot:
                 logger.info(f"Min qty: {filter.get('minQty', 'N/A')}")
                 logger.info(f"Max qty: {filter.get('maxQty', 'N/A')}")
                 logger.info(f"Step size: {filter.get('stepSize', 'N/A')}")
+
+    def reset_margin_type(self, symbol):
+        """Reset margin type by switching to cross margin and back to isolated"""
+        try:
+            # Get current margin type
+            position_info = self.client.get_open_positions(symbol)
+            current_margin_type = None
+            
+            for position in position_info:
+                if position.get('symbol') == symbol:
+                    # Check if marginType is available
+                    if 'marginType' in position:
+                        current_margin_type = position['marginType']
+                    break
+            
+            logger.info(f"Current margin type for {symbol}: {current_margin_type}")
+            
+            # Switch to cross margin
+            self.client.client.futures_change_margin_type(symbol=symbol, marginType='CROSSED')
+            logger.info(f"Switched to CROSSED margin for {symbol}")
+            time.sleep(1)
+            
+            # Switch back to isolated margin
+            self.client.client.futures_change_margin_type(symbol=symbol, marginType='ISOLATED')
+            logger.info(f"Switched back to ISOLATED margin for {symbol}")
+            time.sleep(1)
+            
+            return True
+        except Exception as e:
+            logger.error(f"Error resetting margin type: {e}")
+            return False
