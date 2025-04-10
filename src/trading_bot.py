@@ -392,6 +392,62 @@ class TradingBot:
                     else:
                         # If all retries failed
                         self.telegram.send_error(f"Failed to open position after multiple retries. Last attempt was with quantity {min_qty}")
+                    
+                    # Log more detailed information about the account and margin
+                    account_info = self.client.get_account_balance()
+                    logger.info(f"Account balance details: {account_info}")
+                    
+                    # Get position information
+                    positions = self.client.get_open_positions(SYMBOL)
+                    if positions:
+                        logger.info(f"Current positions: {positions}")
+                    
+                    # Try with a much smaller quantity first
+                    small_qty = min_qty  # Start with minimum quantity
+                    logger.info(f"Trying with minimum quantity: {small_qty}")
+                    
+                    # Try market order instead of limit order
+                    market_result = self.client.place_market_order(side, small_qty)
+                    if market_result:
+                        logger.info(f"Successfully placed market order with minimum quantity: {market_result}")
+                        self.current_position = small_qty if signal > 0 else -small_qty
+                        self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
+                        
+                        # Set stop loss and take profit for the small position
+                        sl_result = self.client.place_stop_loss(side, small_qty, stop_loss_price)
+                        if sl_result:
+                            logger.info(f"Stop loss set at {stop_loss_price}")
+                        
+                        tp_result = self.client.place_take_profit(side, small_qty, take_profit_price)
+                        if tp_result:
+                            logger.info(f"Take profit set at {take_profit_price}")
+                    else:
+                        logger.error(f"Market order also failed with minimum quantity")
+                        
+                        # Check if we need to adjust leverage
+                        current_leverage = self.client.get_leverage(SYMBOL)
+                        logger.info(f"Current leverage: {current_leverage}x")
+                        
+                        # If leverage is high, try with a lower leverage
+                        if current_leverage > 5:
+                            try:
+                                new_leverage = 5  # Try with 5x leverage
+                                self.client.client.futures_change_leverage(symbol=SYMBOL, leverage=new_leverage)
+                                logger.info(f"Reduced leverage to {new_leverage}x for {SYMBOL}")
+                                
+                                # Try again with the new leverage
+                                retry_result = self.client.place_market_order(side, small_qty)
+                                if retry_result:
+                                    logger.info(f"Successfully placed market order with reduced leverage: {retry_result}")
+                                    self.current_position = small_qty if signal > 0 else -small_qty
+                                    self.telegram.send_trade_notification(side, SYMBOL, small_qty, current_price)
+                                else:
+                                    self.telegram.send_error(f"Failed to open position even with reduced leverage and minimum quantity")
+                            except Exception as e:
+                                logger.error(f"Error adjusting leverage: {e}")
+                                self.telegram.send_error(f"Failed to open position. Error: {e}")
+                        else:
+                            self.telegram.send_error(f"Failed to open position with minimum quantity. Margin is insufficient.")
     
     def _paper_open_position(self, side, quantity, price):
         """Simulate opening a position in paper trading mode"""
