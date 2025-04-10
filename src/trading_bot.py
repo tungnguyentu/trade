@@ -134,40 +134,51 @@ class TradingBot:
             account_balance = self.paper_balance
             available_balance = self.paper_balance
         else:
-            account_balance = self.client.get_account_balance()
-            if not account_balance:
+            account_data = self.client.get_account_balance()
+            if not account_data:
                 error_msg = "Failed to get account balance"
                 logger.error(error_msg)
                 self.telegram.send_error(error_msg)
                 return
             
-            # Make sure account_balance is a float, not a dictionary
-            if isinstance(account_balance, dict) and 'balance' in account_balance:
-                account_balance = float(account_balance['balance'])
-                available_balance = float(account_balance.get('availableBalance', account_balance['balance']))
-            elif isinstance(account_balance, dict) and 'totalWalletBalance' in account_balance:
-                account_balance = float(account_balance['totalWalletBalance'])
-                available_balance = float(account_balance.get('availableBalance', account_balance['totalWalletBalance']))
-            elif isinstance(account_balance, dict):
-                # Try to find any numeric value in the dictionary
-                for key, value in account_balance.items():
-                    if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit()):
-                        account_balance = float(value)
-                        logger.info(f"Using {key} as account balance: {account_balance}")
-                        break
+            # Extract balance values from the account data
+            if isinstance(account_data, dict):
+                # If we get a dictionary with balance information
+                if 'wallet_balance' in account_data:
+                    account_balance = float(account_data['wallet_balance'])
+                    logger.info(f"Using wallet_balance as account balance: {account_balance}")
+                    available_balance = float(account_data.get('available_balance', account_balance))
+                elif 'balance' in account_data:
+                    account_balance = float(account_data['balance'])
+                    available_balance = float(account_data.get('availableBalance', account_balance))
+                elif 'totalWalletBalance' in account_data:
+                    account_balance = float(account_data['totalWalletBalance'])
+                    available_balance = float(account_data.get('availableBalance', account_balance))
                 else:
-                    logger.error(f"Could not extract balance from account data: {account_balance}")
-                    return
-                
-                # Try to find available balance
-                for key, value in account_balance.items():
-                    if 'available' in key.lower() and (isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit())):
-                        available_balance = float(value)
-                        logger.info(f"Using {key} as available balance: {available_balance}")
-                        break
-                else:
-                    available_balance = account_balance
-                    logger.warning("Could not find available balance, using total balance instead")
+                    # Try to find any numeric value in the dictionary
+                    for key, value in account_data.items():
+                        if isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit()):
+                            account_balance = float(value)
+                            logger.info(f"Using {key} as account balance: {account_balance}")
+                            break
+                    else:
+                        logger.error(f"Could not extract balance from account data: {account_data}")
+                        return
+                    
+                    # Try to find available balance
+                    for key, value in account_data.items():
+                        if 'available' in key.lower() and (isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit())):
+                            available_balance = float(value)
+                            logger.info(f"Using {key} as available balance: {available_balance}")
+                            break
+                    else:
+                        available_balance = account_balance
+                        logger.warning("Could not find available balance, using total balance instead")
+            else:
+                # If we get a direct numeric value
+                account_balance = float(account_data)
+                available_balance = account_balance
+                logger.warning("Received direct balance value, using same value for available balance")
         
         # Calculate optimal quantity based on risk management
         # Use 2% of account balance per trade as a default risk
