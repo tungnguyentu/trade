@@ -199,6 +199,24 @@ class TradingBot:
         logger.info(f"Account balance: ${account_balance:.2f}, Available balance: ${available_balance:.2f}, Risk amount: ${risk_amount:.2f}")
         logger.info(f"Optimal quantity calculated: {optimal_quantity}, Using: {actual_quantity}")
         
+        # Get current leverage
+        leverage = self.client.get_leverage(SYMBOL)
+        if not leverage and not self.paper_trading:
+            logger.warning(f"Could not get leverage for {SYMBOL}, assuming default leverage of 10x")
+            leverage = 10
+        
+        # Calculate the maximum quantity we can trade with available balance
+        max_quantity = (available_balance * leverage) / current_price
+        # Apply a 5% safety buffer to avoid margin issues
+        max_quantity = max_quantity * 0.95
+        # Round to appropriate precision
+        max_quantity = round(max_quantity, quantity_precision)
+        
+        # If user wants to use all balance, or if actual_quantity is too large
+        if QUANTITY == -1 or (not self.paper_trading and actual_quantity > max_quantity):
+            logger.info(f"Using maximum possible quantity: {max_quantity} (based on available balance and leverage)")
+            actual_quantity = max_quantity
+        
         # Ensure quantity meets minimum requirement
         if actual_quantity < min_qty:
             actual_quantity = min_qty
@@ -209,36 +227,6 @@ class TradingBot:
         
         # Calculate notional value (price × quantity)
         notional_value = current_price * actual_quantity
-        
-        # Check if we have enough available margin
-        # For futures, we need to consider the leverage and required margin
-        # Get current leverage
-        leverage = self.client.get_leverage(SYMBOL)
-        if not leverage and not self.paper_trading:
-            logger.warning(f"Could not get leverage for {SYMBOL}, assuming default leverage of 10x")
-            leverage = 10
-        
-        # Calculate required margin (notional value / leverage)
-        required_margin = notional_value / leverage
-        
-        # Check if we have enough available margin
-        if required_margin > available_balance and not self.paper_trading:
-            # Calculate maximum quantity we can trade with available margin
-            max_quantity = (available_balance * leverage) / current_price
-            # Apply a 10% safety buffer
-            max_quantity = max_quantity * 0.9
-            # Round to appropriate precision
-            max_quantity = round(max_quantity, quantity_precision)
-            
-            if max_quantity < min_qty:
-                error_msg = f"Insufficient margin. Required: ${required_margin:.2f}, Available: ${available_balance:.2f}. Cannot meet minimum quantity."
-                logger.error(error_msg)
-                self.telegram.send_error(error_msg)
-                return
-            
-            logger.info(f"Adjusting quantity from {actual_quantity} to {max_quantity} due to margin constraints")
-            logger.info(f"Required margin: ${required_margin:.2f}, Available margin: ${available_balance:.2f}")
-            actual_quantity = max_quantity
         
         # Check if notional value meets minimum requirement (100 USDT for Binance Futures)
         if notional_value < 100 and not self.paper_trading:
