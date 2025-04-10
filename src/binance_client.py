@@ -33,22 +33,31 @@ class BinanceFuturesClient:
     def setup_futures(self):
         """Set up futures trading parameters"""
         try:
+            # Check for and repair negative margin first
+            self.repair_negative_margin(SYMBOL)
+            
             # Change margin type to ISOLATED
-            self.client.futures_change_margin_type(symbol=SYMBOL, marginType='ISOLATED')
-        except BinanceAPIException as e:
-            if e.code == -4046:  # Already in the desired margin mode
-                pass
-            else:
-                logger.error(f"Error setting margin type: {e}")
-                raise
+            try:
+                self.client.futures_change_margin_type(symbol=SYMBOL, marginType='ISOLATED')
+            except BinanceAPIException as e:
+                if e.code == -4046:  # Already in the desired margin mode
+                    pass
+                elif e.code == -4051:  # Isolated balance insufficient
+                    logger.warning(f"Isolated balance insufficient for {SYMBOL}. Attempting to repair.")
+                    self.repair_negative_margin(SYMBOL)
+                    # Try again after repair
+                    try:
+                        self.client.futures_change_margin_type(symbol=SYMBOL, marginType='ISOLATED')
+                    except Exception as inner_e:
+                        logger.warning(f"Still unable to set isolated margin: {inner_e}")
+                else:
+                    logger.error(f"Error setting margin type: {e}")
                 
-        try:
-            # Set leverage
-            self.client.futures_change_leverage(symbol=SYMBOL, leverage=LEVERAGE)
-            logger.info(f"Leverage set to {LEVERAGE}x for {SYMBOL}")
-        except BinanceAPIException as e:
-            logger.error(f"Error setting leverage: {e}")
-            raise
+            # Set leverage using our more resilient method
+            self.set_leverage(SYMBOL, LEVERAGE)
+        except Exception as e:
+            logger.error(f"Error in setup_futures: {e}")
+            # Continue anyway - we'll try to work with default settings
 
     def get_account_balance(self):
         """Get futures account balance"""
@@ -239,3 +248,75 @@ class BinanceFuturesClient:
             except:
                 # If all else fails, return a conservative default
                 return 5
+                
+    def repair_negative_margin(self, symbol):
+        """Attempt to repair negative isolated margin by transferring funds"""
+        try:
+            # Get position information to check isolated margin
+            positions = self.get_open_positions(symbol)
+            negative_margin = 0
+            
+            for position in positions:
+                if position['symbol'] == symbol:
+                    isolated_margin = float(position.get('isolatedMargin', 0))
+                    isolated_wallet = float(position.get('isolatedWallet', 0))
+                    
+                    if isolated_margin < 0 or isolated_wallet < 0:
+                        # Calculate how much to transfer (negative value plus buffer)
+                        negative_margin = abs(min(isolated_margin, isolated_wallet))
+                        transfer_amount = negative_margin + 10  # Add $10 buffer
+                        
+                        logger.info(f"Attempting to repair negative margin of ${negative_margin:.2f} by transferring ${transfer_amount:.2f}")
+                        
+                        # Transfer from spot to futures
+                        try:
+                            # First try to transfer from spot to futures wallet
+                            self.client.futures_account_transfer(
+                                asset='USDT',
+                                amount=transfer_amount,
+                                type=1  # 1: Spot to USDⓈ-M Futures
+                            )
+                            logger.info(f"Transferred ${transfer_amount:.2f} from spot to futures wallet")
+                        except Exception as e:
+                            logger.warning(f"Error transferring from spot to futures: {e}")
+                            
+                        # Then try to adjust isolated margin
+                        try:
+                            # Add margin to the position
+                            self.client.futures_change_position_margin(
+                                symbol=symbol,
+                                amount=transfer_amount,
+                                type=1  # 1: Add margin
+                            )
+                            logger.info(f"Added ${transfer_amount:.2f} margin to {symbol} position")
+                            return True
+                        except Exception as e:
+                            logger.error(f"Error adding margin to position: {e}")
+                            
+                        # If direct margin adjustment fails, try to close and reopen position
+                        try:
+                            # Cancel all open orders first
+                            self.cancel_all_orders(symbol)
+                            
+                            # Try to switch to cross margin temporarily
+                            try:
+                                self.client.futures_change_margin_type(symbol=symbol, marginType='CROSSED')
+                                logger.info(f"Switched to CROSSED margin for {symbol}")
+                                
+                                # Switch back to isolated with more margin
+                                self.client.futures_change_margin_type(symbol=symbol, marginType='ISOLATED')
+                                logger.info(f"Switched back to ISOLATED margin for {symbol}")
+                                return True
+                            except Exception as e:
+                                logger.error(f"Error switching margin type: {e}")
+                        except Exception as e:
+                            logger.error(f"Error closing position: {e}")
+            
+            if negative_margin == 0:
+                logger.info(f"No negative margin detected for {symbol}")
+                return True
+                
+            return False
+        except Exception as e:
+            logger.error(f"Error repairing negative margin: {e}")
+            return False
