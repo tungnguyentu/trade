@@ -18,7 +18,13 @@ class TradingBot:
     def __init__(self, testnet=None, paper_trading=False, debug=False):
         self.paper_trading = paper_trading
         self.debug = debug
-        self.client = BinanceFuturesClient(testnet=testnet)
+        
+        try:
+            self.client = BinanceFuturesClient(testnet=testnet)
+        except Exception as e:
+            logger.error(f"Failed to initialize Binance client: {e}")
+            raise
+            
         self.data_processor = DataProcessor()
         self.telegram = TelegramNotifier()
         
@@ -403,18 +409,23 @@ class TradingBot:
                         logger.info(f"Current positions: {positions}")
                         
                         # Check for negative isolated margin which can cause "Margin is insufficient" errors
-                        # Check for negative isolated margin which can cause "Margin is insufficient" errors
-                        if not self.paper_trading:
-                            positions = self.client.get_open_positions(SYMBOL)
-                            for position in positions:
-                                if position.get('symbol') == SYMBOL:
-                                    isolated_margin = float(position.get('isolatedMargin', 0))
-                                    isolated_wallet = float(position.get('isolatedWallet', 0))
+                        for position in positions:
+                            if position.get('symbol') == SYMBOL:
+                                isolated_margin = float(position.get('isolatedMargin', 0))
+                                isolated_wallet = float(position.get('isolatedWallet', 0))
+                                
+                                if isolated_margin < 0 or isolated_wallet < 0:
+                                    logger.warning(f"Detected negative isolated margin: {isolated_margin} or wallet: {isolated_wallet}")
+                                    logger.info("Attempting to reset isolated margin before placing order")
+                                    self.reset_margin_type(SYMBOL)
                                     
-                                    if isolated_margin < 0 or isolated_wallet < 0:
-                                        logger.warning(f"Detected negative isolated margin: {isolated_margin} or wallet: {isolated_wallet}")
-                                        logger.info("Attempting to reset isolated margin before placing order")
-                                        self.reset_margin_type(SYMBOL)
+                                    # Try again with minimum quantity after resetting margin
+                                    logger.info("Trying again after resetting margin type")
+                                    retry_result = self.client.place_market_order(side, min_qty)
+                                    if retry_result:
+                                        logger.info(f"Successfully placed market order after resetting margin: {retry_result}")
+                                        self.current_position = min_qty if signal > 0 else -min_qty
+                                        self.telegram.send_trade_notification(side, SYMBOL, min_qty, current_price)
                                         break
                                 
                                     # Try to reset the margin by switching to cross margin and back

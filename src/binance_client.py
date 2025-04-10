@@ -215,3 +215,27 @@ class BinanceFuturesClient:
         except Exception as e:
             logger.error(f"Error getting leverage: {e}")
             return None
+
+    def set_leverage(self, symbol, leverage=20):
+        """Set leverage for a symbol"""
+        try:
+            result = self.client.futures_change_leverage(symbol=symbol, leverage=leverage)
+            logger.info(f"Leverage set to {leverage}x for {symbol}")
+            return leverage
+        except Exception as e:
+            logger.warning(f"Error setting leverage to {leverage}x for {symbol}: {e}")
+            logger.info(f"Continuing with default leverage. This may affect position sizing.")
+            
+            # Try to get current leverage instead
+            try:
+                current_leverage = self.get_leverage(symbol)
+                if current_leverage:
+                    logger.info(f"Using existing leverage: {current_leverage}x for {symbol}")
+                    return current_leverage
+                else:
+                    # If we can't get current leverage, assume a conservative value
+                    logger.info(f"Using default leverage of 5x for {symbol}")
+                    return 5
+            except:
+                # If all else fails, return a conservative default
+                return 5
