@@ -92,16 +92,26 @@ class TradingBot:
         for filter in exchange_info.get('filters', []):
             if filter.get('filterType') == 'PRICE_FILTER':
                 # Calculate price precision from tick size
-                tick_size = float(filter.get('tickSize', '0.00010'))
-                price_precision = len(str(tick_size).split('.')[-1])
-                # If tick size ends with zeros, adjust precision
-                price_precision = len(tick_size.rstrip('0').split('.')[-1])
+                tick_size = filter.get('tickSize', '0.00010')
+                # Convert to string first if it's a float
+                if isinstance(tick_size, float):
+                    tick_size = str(tick_size)
+                # Calculate precision from decimal places
+                if '.' in tick_size:
+                    price_precision = len(tick_size.split('.')[-1])
+                    # If tick size ends with zeros, adjust precision
+                    price_precision = len(tick_size.rstrip('0').split('.')[-1])
+                else:
+                    price_precision = 0
                 
             elif filter.get('filterType') == 'LOT_SIZE':
                 # Get minimum quantity
                 min_qty = float(filter.get('minQty', '1'))
                 # Calculate quantity precision from step size
                 step_size = filter.get('stepSize', '1')
+                # Convert to string first if it's a float
+                if isinstance(step_size, float):
+                    step_size = str(step_size)
                 if '.' in step_size:
                     quantity_precision = len(step_size.split('.')[-1])
                     # If step size ends with zeros, adjust precision
