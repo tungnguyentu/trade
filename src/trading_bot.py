@@ -499,3 +499,30 @@ class TradingBot:
                     
                     # Cancel any open orders
                     self.client.cancel_all_orders()
+
+    def fetch_and_display_exchange_info(self):
+        """Fetch and display exchange information for the trading symbol"""
+        # Get exchange info for the symbol to determine correct precision
+        exchange_info = self.client.get_exchange_info(SYMBOL)
+        if not exchange_info:
+            error_msg = f"Failed to get exchange info for {SYMBOL}"
+            logger.error(error_msg)
+            self.telegram.send_error(error_msg)
+            return
+            
+        # Get price and quantity precision from exchange info
+        price_precision = exchange_info.get('pricePrecision', 1)
+        quantity_precision = exchange_info.get('quantityPrecision', 3)
+        
+        # Display filters
+        filters = exchange_info.get('filters', [])
+        for filter in filters:
+            filter_type = filter.get('filterType', '')
+            if filter_type == 'PRICE_FILTER':
+                logger.info(f"Min price: {filter.get('minPrice', 'N/A')}")
+                logger.info(f"Max price: {filter.get('maxPrice', 'N/A')}")
+                logger.info(f"Tick size: {filter.get('tickSize', 'N/A')}")
+            elif filter_type == 'LOT_SIZE':
+                logger.info(f"Min qty: {filter.get('minQty', 'N/A')}")
+                logger.info(f"Max qty: {filter.get('maxQty', 'N/A')}")
+                logger.info(f"Step size: {filter.get('stepSize', 'N/A')}")

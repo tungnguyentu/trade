@@ -178,3 +178,19 @@ class BinanceFuturesClient:
         except BinanceAPIException as e:
             logger.error(f"Error cancelling orders: {e}")
             return None
+
+    def get_exchange_info(self, symbol):
+        """Get exchange information for a specific symbol"""
+        try:
+            exchange_info = self.client.futures_exchange_info()
+            
+            # Find the symbol in the exchange info
+            for sym_info in exchange_info['symbols']:
+                if sym_info['symbol'] == symbol:
+                    return sym_info
+                    
+            logger.warning(f"Symbol {symbol} not found in exchange info")
+            return None
+        except Exception as e:
+            logger.error(f"Error getting exchange info: {e}")
+            return None

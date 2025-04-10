@@ -28,6 +28,8 @@ def parse_arguments():
                         help='Enable debug mode with more verbose logging')
     parser.add_argument('--force-check', action='store_true', default=False,
                         help='Force immediate strategy check without waiting')
+    parser.add_argument('--fetch-exchange-info', action='store_true', default=False,
+                        help='Fetch and display exchange information for the trading symbol')
     return parser.parse_args()
 
 def main():
@@ -46,6 +48,12 @@ def main():
 
     try:
         bot = TradingBot(testnet=args.testnet, paper_trading=args.paper_trading, debug=args.debug)
+        
+        # If fetch exchange info flag is set, display the info and exit
+        if args.fetch_exchange_info:
+            bot.fetch_and_display_exchange_info()
+            return 0
+            
         bot.run(interval=args.interval, check_interval=args.check_interval, force_check=args.force_check)
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
