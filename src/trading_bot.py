@@ -202,20 +202,32 @@ class TradingBot:
         # Get current leverage
         leverage = self.client.get_leverage(SYMBOL)
         if not leverage and not self.paper_trading:
-            logger.warning(f"Could not get leverage for {SYMBOL}, assuming default leverage of 10x")
-            leverage = 10
+            logger.warning(f"Could not get leverage for {SYMBOL}, assuming default leverage of 20x")
+            leverage = 20  # Updated to match your 20x leverage setting
+        
+        logger.info(f"Using leverage: {leverage}x")
         
         # Calculate the maximum quantity we can trade with available balance
+        # For futures, the formula is: (available_balance * leverage) / current_price
         max_quantity = (available_balance * leverage) / current_price
-        # Apply a 5% safety buffer to avoid margin issues
-        max_quantity = max_quantity * 0.95
+        
+        # Apply a 10% safety buffer to avoid margin issues (increased from 5%)
+        max_quantity = max_quantity * 0.9
+        
         # Round to appropriate precision
         max_quantity = round(max_quantity, quantity_precision)
         
+        logger.info(f"Maximum possible quantity: {max_quantity} (based on available balance and {leverage}x leverage)")
+        
         # If user wants to use all balance, or if actual_quantity is too large
         if QUANTITY == -1 or (not self.paper_trading and actual_quantity > max_quantity):
-            logger.info(f"Using maximum possible quantity: {max_quantity} (based on available balance and leverage)")
+            logger.info(f"Adjusting quantity from {actual_quantity} to {max_quantity} to fit within available margin")
             actual_quantity = max_quantity
+            
+            # If max quantity is very small, try a more conservative approach
+            if max_quantity < 1 and min_qty <= 1:
+                logger.info("Max quantity is very small, using minimum quantity instead")
+                actual_quantity = min_qty
         
         # Ensure quantity meets minimum requirement
         if actual_quantity < min_qty:
@@ -344,7 +356,42 @@ class TradingBot:
                 else:
                     error_msg = "Failed to open position"
                     logger.error(error_msg)
-                    self.telegram.send_error(error_msg)
+                    
+                    # Try with progressively smaller quantities if the order fails
+                    retry_quantities = [
+                        actual_quantity * 0.75,  # Try with 75% of original quantity
+                        actual_quantity * 0.5,   # Try with 50% of original quantity
+                        actual_quantity * 0.25,  # Try with 25% of original quantity
+                        min_qty                  # Finally, try with minimum quantity
+                    ]
+                    
+                    for retry_qty in retry_quantities:
+                        retry_qty = round(retry_qty, quantity_precision)
+                        if retry_qty < min_qty:
+                            retry_qty = min_qty
+                            
+                        logger.info(f"Retrying with reduced quantity: {retry_qty}")
+                        retry_result = self.client.place_limit_order(SYMBOL, side, retry_qty, limit_price)
+                        
+                        if retry_result:
+                            logger.info(f"Successfully placed limit order with reduced quantity: {retry_result}")
+                            self.current_position = retry_qty if signal > 0 else -retry_qty
+                            self.telegram.send_trade_notification(side, SYMBOL, retry_qty, limit_price)
+                            
+                            # Set stop loss and take profit for the reduced position
+                            sl_result = self.client.place_stop_loss(side, retry_qty, stop_loss_price)
+                            if sl_result:
+                                logger.info(f"Stop loss set at {stop_loss_price}")
+                            
+                            tp_result = self.client.place_take_profit(side, retry_qty, take_profit_price)
+                            if tp_result:
+                                logger.info(f"Take profit set at {take_profit_price}")
+                                
+                            # Successfully placed order with reduced quantity
+                            break
+                    else:
+                        # If all retries failed
+                        self.telegram.send_error(f"Failed to open position after multiple retries. Last attempt was with quantity {min_qty}")
     
     def _paper_open_position(self, side, quantity, price):
         """Simulate opening a position in paper trading mode"""
