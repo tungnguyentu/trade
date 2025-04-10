@@ -128,10 +128,36 @@ class TradingBot:
             logger.error(error_msg)
             self.telegram.send_error(error_msg)
             return
-            
-        # Determine appropriate quantity based on exchange requirements
-        # Start with configured quantity
-        actual_quantity = QUANTITY
+        
+        # Get account balance to calculate optimal position size
+        if self.paper_trading:
+            account_balance = self.paper_balance
+        else:
+            account_balance = self.client.get_account_balance()
+            if not account_balance:
+                error_msg = "Failed to get account balance"
+                logger.error(error_msg)
+                self.telegram.send_error(error_msg)
+                return
+        
+        # Calculate optimal quantity based on risk management
+        # Use 2% of account balance per trade as a default risk
+        risk_percentage = 0.02  # 2% risk per trade
+        risk_amount = account_balance * risk_percentage
+        
+        # Calculate quantity based on risk amount and current price
+        # For futures, consider leverage
+        optimal_quantity = risk_amount / current_price
+        
+        # If configured quantity is provided, use it as a starting point
+        if QUANTITY > 0:
+            actual_quantity = QUANTITY
+        else:
+            # Otherwise use the calculated optimal quantity
+            actual_quantity = optimal_quantity
+        
+        logger.info(f"Account balance: ${account_balance:.2f}, Risk amount: ${risk_amount:.2f}")
+        logger.info(f"Optimal quantity calculated: {optimal_quantity}, Using: {actual_quantity}")
         
         # Ensure quantity meets minimum requirement
         if actual_quantity < min_qty:
@@ -165,9 +191,8 @@ class TradingBot:
             logger.info(f"Estimated notional value: {adjusted_quantity * current_price:.2f} USDT")
             actual_quantity = adjusted_quantity
         
-        # Rest of the method remains the same, but make sure to use price_precision for limit prices
-        # and quantity_precision for quantities
-        
+        # Rest of the method remains the same...
+            
         # If we have a position already
         if self.current_position != 0:
             # If signal is opposite to our position, close the position
