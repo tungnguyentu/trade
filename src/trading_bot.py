@@ -132,6 +132,7 @@ class TradingBot:
         # Get account balance to calculate optimal position size
         if self.paper_trading:
             account_balance = self.paper_balance
+            available_balance = self.paper_balance
         else:
             account_balance = self.client.get_account_balance()
             if not account_balance:
@@ -143,8 +144,10 @@ class TradingBot:
             # Make sure account_balance is a float, not a dictionary
             if isinstance(account_balance, dict) and 'balance' in account_balance:
                 account_balance = float(account_balance['balance'])
+                available_balance = float(account_balance.get('availableBalance', account_balance['balance']))
             elif isinstance(account_balance, dict) and 'totalWalletBalance' in account_balance:
                 account_balance = float(account_balance['totalWalletBalance'])
+                available_balance = float(account_balance.get('availableBalance', account_balance['totalWalletBalance']))
             elif isinstance(account_balance, dict):
                 # Try to find any numeric value in the dictionary
                 for key, value in account_balance.items():
@@ -155,6 +158,16 @@ class TradingBot:
                 else:
                     logger.error(f"Could not extract balance from account data: {account_balance}")
                     return
+                
+                # Try to find available balance
+                for key, value in account_balance.items():
+                    if 'available' in key.lower() and (isinstance(value, (int, float)) or (isinstance(value, str) and value.replace('.', '', 1).isdigit())):
+                        available_balance = float(value)
+                        logger.info(f"Using {key} as available balance: {available_balance}")
+                        break
+                else:
+                    available_balance = account_balance
+                    logger.warning("Could not find available balance, using total balance instead")
         
         # Calculate optimal quantity based on risk management
         # Use 2% of account balance per trade as a default risk
@@ -172,7 +185,7 @@ class TradingBot:
             # Otherwise use the calculated optimal quantity
             actual_quantity = optimal_quantity
         
-        logger.info(f"Account balance: ${account_balance:.2f}, Risk amount: ${risk_amount:.2f}")
+        logger.info(f"Account balance: ${account_balance:.2f}, Available balance: ${available_balance:.2f}, Risk amount: ${risk_amount:.2f}")
         logger.info(f"Optimal quantity calculated: {optimal_quantity}, Using: {actual_quantity}")
         
         # Ensure quantity meets minimum requirement
@@ -185,6 +198,36 @@ class TradingBot:
         
         # Calculate notional value (price × quantity)
         notional_value = current_price * actual_quantity
+        
+        # Check if we have enough available margin
+        # For futures, we need to consider the leverage and required margin
+        # Get current leverage
+        leverage = self.client.get_leverage(SYMBOL)
+        if not leverage and not self.paper_trading:
+            logger.warning(f"Could not get leverage for {SYMBOL}, assuming default leverage of 10x")
+            leverage = 10
+        
+        # Calculate required margin (notional value / leverage)
+        required_margin = notional_value / leverage
+        
+        # Check if we have enough available margin
+        if required_margin > available_balance and not self.paper_trading:
+            # Calculate maximum quantity we can trade with available margin
+            max_quantity = (available_balance * leverage) / current_price
+            # Apply a 10% safety buffer
+            max_quantity = max_quantity * 0.9
+            # Round to appropriate precision
+            max_quantity = round(max_quantity, quantity_precision)
+            
+            if max_quantity < min_qty:
+                error_msg = f"Insufficient margin. Required: ${required_margin:.2f}, Available: ${available_balance:.2f}. Cannot meet minimum quantity."
+                logger.error(error_msg)
+                self.telegram.send_error(error_msg)
+                return
+            
+            logger.info(f"Adjusting quantity from {actual_quantity} to {max_quantity} due to margin constraints")
+            logger.info(f"Required margin: ${required_margin:.2f}, Available margin: ${available_balance:.2f}")
+            actual_quantity = max_quantity
         
         # Check if notional value meets minimum requirement (100 USDT for Binance Futures)
         if notional_value < 100 and not self.paper_trading:

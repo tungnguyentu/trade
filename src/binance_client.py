@@ -194,3 +194,24 @@ class BinanceFuturesClient:
         except Exception as e:
             logger.error(f"Error getting exchange info: {e}")
             return None
+
+    def get_leverage(self, symbol):
+        """Get current leverage for a symbol"""
+        try:
+            leverage_info = self.client.futures_leverage_bracket(symbol=symbol)
+            if leverage_info and isinstance(leverage_info, list) and len(leverage_info) > 0:
+                # The API returns a list of brackets, we want the current leverage
+                current_leverage = leverage_info[0].get('initialLeverage', 10)
+                return current_leverage
+            
+            # If we can't get the leverage from brackets, try to get position info
+            positions = self.get_open_positions(symbol)
+            if positions:
+                for position in positions:
+                    if position['symbol'] == symbol:
+                        return float(position.get('leverage', 10))
+            
+            return 10  # Default to 10x if we can't determine
+        except Exception as e:
+            logger.error(f"Error getting leverage: {e}")
+            return None
