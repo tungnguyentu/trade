@@ -94,42 +94,132 @@ class BinanceFuturesClient:
             logger.error(f"Error getting historical klines: {e}")
             return None
 
-    def place_market_order(self, side, quantity, symbol=SYMBOL, reduce_only=False):
-        """Place a market order"""
-        try:
-            order = self.client.futures_create_order(
-                symbol=symbol,
-                side=side,  # 'BUY' or 'SELL'
-                type='MARKET',
-                quantity=quantity,
-                reduceOnly=reduce_only
-            )
-            logger.info(f"Placed {side} market order for {quantity} {symbol}: {order['orderId']}")
-            return order
-        except BinanceAPIException as e:
-            logger.error(f"Error placing market order: {e}")
-            return None
+    def place_market_order(self, side, quantity, symbol=SYMBOL, reduce_only=False, max_retries=3):
+        """Place a market order with retry mechanism for timeouts"""
+        # Initialize retry counter and backoff time
+        retries = 0
+        backoff_time = 1  # Start with 1 second backoff
+        
+        while retries <= max_retries:
+            try:
+                order = self.client.futures_create_order(
+                    symbol=symbol,
+                    side=side,  # 'BUY' or 'SELL'
+                    type='MARKET',
+                    quantity=quantity,
+                    reduceOnly=reduce_only
+                )
+                logger.info(f"Placed {side} market order for {quantity} {symbol}: {order['orderId']}")
+                return order
+                
+            except BinanceAPIException as e:
+                # Handle timeout errors specifically
+                if e.code == -1007:  # Timeout error
+                    retries += 1
+                    if retries <= max_retries:
+                        logger.warning(f"Timeout error placing market order (attempt {retries}/{max_retries}). Retrying in {backoff_time}s...")
+                        
+                        # Check if the order was actually placed despite the timeout
+                        try:
+                            # Wait a moment before checking
+                            import time
+                            time.sleep(backoff_time)
+                            
+                            # Get recent orders to see if our order went through
+                            recent_orders = self.client.futures_get_orders(symbol=symbol, limit=10)
+                            for order in recent_orders:
+                                # Look for orders placed in the last minute with matching parameters
+                                order_time = order['time'] / 1000  # Convert from ms to seconds
+                                current_time = time.time()
+                                if (current_time - order_time) < 60 and order['side'] == side and order['type'] == 'MARKET' and float(order['origQty']) == float(quantity):
+                                    logger.info(f"Found matching market order that was placed despite timeout: {order['orderId']}")
+                                    return order
+                                    
+                            # Increase backoff time exponentially
+                            backoff_time *= 2
+                            time.sleep(backoff_time)
+                            
+                        except Exception as check_e:
+                            logger.error(f"Error checking for existing orders: {check_e}")
+                    else:
+                        logger.error(f"Failed to place market order after {max_retries} retries: {e}")
+                        return None
+                else:
+                    # For non-timeout errors, log and return None
+                    logger.error(f"Error placing market order: {e}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error placing market order: {e}")
+                return None
+                
+        return None  # Return None if all retries failed
 
-    def place_limit_order(self, symbol, side, quantity, price, reduce_only=False):
-        """Place a limit order"""
-        try:
-            logger.info(f"Placing {side} limit order for {quantity} {symbol} at {price}")
-            
-            order = self.client.futures_create_order(
-                symbol=symbol,
-                side=side,
-                type='LIMIT',
-                timeInForce='GTC',  # Good Till Cancelled
-                quantity=quantity,
-                price=price,
-                reduceOnly=reduce_only
-            )
-            
-            logger.info(f"Placed {side} limit order for {quantity} {symbol}: {order['orderId']}")
-            return order
-        except Exception as e:
-            logger.error(f"Error placing limit order: {e}")
-            return None
+    def place_limit_order(self, symbol, side, quantity, price, reduce_only=False, max_retries=3):
+        """Place a limit order with retry mechanism for timeouts"""
+        logger.info(f"Placing {side} limit order for {quantity} {symbol} at {price}")
+        
+        # Initialize retry counter and backoff time
+        retries = 0
+        backoff_time = 1  # Start with 1 second backoff
+        
+        while retries <= max_retries:
+            try:
+                order = self.client.futures_create_order(
+                    symbol=symbol,
+                    side=side,
+                    type='LIMIT',
+                    timeInForce='GTC',  # Good Till Cancelled
+                    quantity=quantity,
+                    price=price,
+                    reduceOnly=reduce_only
+                )
+                
+                logger.info(f"Placed {side} limit order for {quantity} {symbol}: {order['orderId']}")
+                return order
+                
+            except BinanceAPIException as e:
+                # Handle timeout errors specifically
+                if e.code == -1007:  # Timeout error
+                    retries += 1
+                    if retries <= max_retries:
+                        logger.warning(f"Timeout error placing order (attempt {retries}/{max_retries}). Retrying in {backoff_time}s...")
+                        
+                        # Check if the order was actually placed despite the timeout
+                        try:
+                            # Wait a moment before checking
+                            import time
+                            time.sleep(backoff_time)
+                            
+                            # Get recent orders to see if our order went through
+                            recent_orders = self.client.futures_get_orders(symbol=symbol, limit=10)
+                            for order in recent_orders:
+                                # Look for orders placed in the last minute with matching parameters
+                                order_time = order['time'] / 1000  # Convert from ms to seconds
+                                current_time = time.time()
+                                if (current_time - order_time) < 60 and order['side'] == side and float(order['price']) == float(price) and float(order['origQty']) == float(quantity):
+                                    logger.info(f"Found matching order that was placed despite timeout: {order['orderId']}")
+                                    return order
+                                    
+                            # Increase backoff time exponentially
+                            backoff_time *= 2
+                            time.sleep(backoff_time)
+                            
+                        except Exception as check_e:
+                            logger.error(f"Error checking for existing orders: {check_e}")
+                    else:
+                        logger.error(f"Failed to place order after {max_retries} retries: {e}")
+                        return None
+                else:
+                    # For non-timeout errors, log and return None
+                    logger.error(f"Error placing limit order: {e}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error placing limit order: {e}")
+                return None
+                
+        return None  # Return None if all retries failed
 
     def place_stop_loss(self, side, quantity, stop_price, symbol=SYMBOL):
         """Place a stop loss order"""
