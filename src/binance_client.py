@@ -126,7 +126,7 @@ class BinanceFuturesClient:
                             time.sleep(backoff_time)
                             
                             # Get recent orders to see if our order went through
-                            recent_orders = self.client.futures_get_orders(symbol=symbol, limit=10)
+                            recent_orders = self.client.futures_get_all_orders(symbol=symbol, limit=10)
                             for order in recent_orders:
                                 # Look for orders placed in the last minute with matching parameters
                                 order_time = order['time'] / 1000  # Convert from ms to seconds
@@ -192,7 +192,7 @@ class BinanceFuturesClient:
                             time.sleep(backoff_time)
                             
                             # Get recent orders to see if our order went through
-                            recent_orders = self.client.futures_get_orders(symbol=symbol, limit=10)
+                            recent_orders = self.client.futures_get_all_orders(symbol=symbol, limit=10)
                             for order in recent_orders:
                                 # Look for orders placed in the last minute with matching parameters
                                 order_time = order['time'] / 1000  # Convert from ms to seconds
